@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const sql = require('mssql');
+const { sql, getConnection } = require('./db');
 
 // Charger les variables d'environnement
 dotenv.config();
@@ -11,33 +11,6 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
-
-// Configuration de la connexion à SQL Server
-const sqlConfig = {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
-  server: process.env.DB_SERVER.split(',')[0],
-  port: parseInt(process.env.DB_SERVER.split(',')[1]),
-  options: {
-    encrypt: true,
-    trustServerCertificate: true,
-  },
-};
-
-// Pool de connexion SQL
-let pool;
-
-// Initialiser la connexion à la base de données
-async function initializeDbConnection() {
-  try {
-    pool = await sql.connect(sqlConfig);
-    console.log('Connexion à la base de données établie avec succès');
-  } catch (err) {
-    console.error('Erreur de connexion à la base de données:', err);
-    process.exit(1);
-  }
-}
 
 // Routes API
 app.get('/', (req, res) => {
@@ -61,11 +34,17 @@ const PORT = process.env.PORT || 3001;
 
 // Démarrer le serveur
 async function startServer() {
-  await initializeDbConnection();
-  
-  app.listen(PORT, () => {
-    console.log(`Serveur en cours d'exécution sur le port ${PORT}`);
-  });
+  try {
+    // Initialiser la connexion à la base de données
+    await getConnection();
+    
+    app.listen(PORT, () => {
+      console.log(`Serveur en cours d'exécution sur le port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('Erreur lors du démarrage du serveur:', err);
+    process.exit(1);
+  }
 }
 
 // Gérer les erreurs non capturées
@@ -73,10 +52,8 @@ process.on('unhandledRejection', (err) => {
   console.error('Erreur non gérée:', err);
 });
 
-// Exporter le pool de connexion pour les autres modules
+// Exporter le module
 module.exports = {
-  sql,
-  pool,
   startServer
 };
 

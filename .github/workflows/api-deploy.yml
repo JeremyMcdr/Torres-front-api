@@ -49,21 +49,94 @@ jobs:
             docker stop torres-api || true
             docker rm torres-api || true
             
+            # Vérifier si le conteneur SQL Server existe, sinon le créer
+            if ! docker ps -a | grep -q torres-sqlserver; then
+              echo "Création du conteneur SQL Server..."
+              docker run -d \
+                --name torres-sqlserver \
+                --network nginx-proxy-manager_default \
+                -e "ACCEPT_EULA=Y" \
+                -e "SA_PASSWORD=Password123!" \
+                -e "MSSQL_PID=Express" \
+                -p 1433:1433 \
+                --restart always \
+                mcr.microsoft.com/mssql/server:2019-latest
+              
+              echo "Attente du démarrage de SQL Server..."
+              # Attendre que SQL Server soit prêt à accepter des connexions
+              for i in {1..30}; do
+                if docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Password123!" -Q "SELECT 1" &> /dev/null; then
+                  echo "SQL Server est prêt!"
+                  break
+                fi
+                echo "Attente de SQL Server... ($i/30)"
+                sleep 5
+              done
+              
+              # Créer la base de données
+              echo "Création de la base de données TP_CSID..."
+              docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd \
+                -S localhost -U sa -P "Password123!" \
+                -Q "IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'TP_CSID') CREATE DATABASE TP_CSID"
+              
+              echo "Base de données créée avec succès."
+            else
+              echo "Le conteneur SQL Server existe déjà."
+              
+              # Vérifier que SQL Server est en cours d'exécution
+              if ! docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Password123!" -Q "SELECT 1" &> /dev/null; then
+                echo "SQL Server n'est pas prêt. Redémarrage du conteneur..."
+                docker restart torres-sqlserver
+                
+                # Attendre que SQL Server soit prêt
+                for i in {1..30}; do
+                  if docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Password123!" -Q "SELECT 1" &> /dev/null; then
+                    echo "SQL Server est prêt!"
+                    break
+                  fi
+                  echo "Attente de SQL Server... ($i/30)"
+                  sleep 5
+                done
+              else
+                echo "SQL Server est en cours d'exécution."
+              fi
+              
+              # Vérifier que la base de données existe
+              if ! docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Password123!" -Q "IF DB_ID('TP_CSID') IS NOT NULL SELECT 1 AS DatabaseExists ELSE SELECT 0 AS DatabaseExists" | grep -q "1"; then
+                echo "La base de données TP_CSID n'existe pas. Création..."
+                docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd \
+                  -S localhost -U sa -P "Password123!" \
+                  -Q "CREATE DATABASE TP_CSID"
+                echo "Base de données créée avec succès."
+              else
+                echo "La base de données TP_CSID existe déjà."
+              fi
+            fi
+            
+            # S'assurer que le conteneur SQL Server est connecté au réseau nginx-proxy-manager_default
+            docker network connect nginx-proxy-manager_default torres-sqlserver || true
+            
             # Lancer le nouveau conteneur avec les variables d'environnement pour la BDD
+            echo "Démarrage de l'API..."
             docker run -d --name torres-api \
               -p 3000:3000 \
               --restart always \
               --network nginx-proxy-manager_default \
               -e NODE_ENV=production \
-              -e DB_HOST='${{ secrets.DB_HOST }}' \
-              -e DB_PORT='${{ secrets.DB_PORT }}' \
-              -e DB_NAME='${{ secrets.DB_NAME }}' \
-              -e DB_USER='${{ secrets.DB_USER }}' \
-              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+              -e DB_HOST='torres-sqlserver' \
+              -e DB_PORT='1433' \
+              -e DB_NAME='TP_CSID' \
+              -e DB_USER='sa' \
+              -e DB_PASSWORD='Password123!' \
               ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
             
             # Connecter également au réseau bridge si nécessaire
             docker network connect bridge torres-api || true
             
             # Nettoyer les images non utilisées
-            docker image prune -f 
+            docker image prune -f
+            
+            # Afficher les logs pour vérifier la connexion à la base de données
+            echo "Logs de l'API (10 premières lignes) :"
+            sleep 5
+            docker logs torres-api --tail 10 

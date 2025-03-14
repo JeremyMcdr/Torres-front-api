@@ -48,24 +48,7 @@ jobs:
           source: "docker-compose.yml"
           target: "~/torres-app"
       
-      - name: Create .env file for database credentials
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          password: ${{ secrets.PASSWORD }}
-          port: ${{ secrets.PORT }}
-          script: |
-            # Créer un fichier .env avec les informations de connexion à la BDD
-            cat > ~/torres-app/.env << EOF
-            DB_HOST=${{ secrets.DB_HOST }}
-            DB_PORT=${{ secrets.DB_PORT }}
-            DB_NAME=${{ secrets.DB_NAME }}
-            DB_USER=${{ secrets.DB_USER }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            EOF
-      
-      - name: Deploy with docker-compose
+      - name: Setup SQL Server and deploy application
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
@@ -75,6 +58,40 @@ jobs:
           script: |
             # Aller dans le répertoire du projet
             cd ~/torres-app
+            
+            # Vérifier si le conteneur SQL Server existe, sinon le créer
+            if ! docker ps -a | grep -q torres-sqlserver; then
+              echo "Création du conteneur SQL Server..."
+              docker run -d \
+                --name torres-sqlserver \
+                --network nginx-proxy-manager_default \
+                -e "ACCEPT_EULA=Y" \
+                -e "SA_PASSWORD=Password123!" \
+                -e "MSSQL_PID=Express" \
+                -p 1433:1433 \
+                --restart always \
+                mcr.microsoft.com/mssql/server:2019-latest
+              
+              # Attendre que SQL Server démarre
+              echo "Attente du démarrage de SQL Server..."
+              sleep 20
+              
+              # Créer la base de données
+              docker exec torres-sqlserver /opt/mssql-tools/bin/sqlcmd \
+                -S localhost -U sa -P "Password123!" \
+                -Q "CREATE DATABASE TP_CSID"
+            else
+              echo "Le conteneur SQL Server existe déjà."
+            fi
+            
+            # Créer un fichier .env avec les informations de connexion à la BDD
+            cat > ~/torres-app/.env << EOF
+            DB_HOST=torres-sqlserver
+            DB_PORT=1433
+            DB_NAME=TP_CSID
+            DB_USER=sa
+            DB_PASSWORD=Password123!
+            EOF
             
             # Modifier le docker-compose.yml pour utiliser les images Docker Hub
             sed -i 's|build: ./API|image: ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest|g' docker-compose.yml
@@ -92,6 +109,7 @@ jobs:
             # S'assurer que les conteneurs sont connectés au réseau nginx-proxy-manager_default
             docker network connect nginx-proxy-manager_default torres-api || true
             docker network connect nginx-proxy-manager_default torres-front || true
+            docker network connect nginx-proxy-manager_default torres-sqlserver || true
             
             # Nettoyer les images non utilisées
             docker image prune -f 

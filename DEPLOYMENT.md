@@ -4,9 +4,10 @@ Ce document explique comment l'application Torres est déployée automatiquement
 
 ## Architecture
 
-L'application est composée de deux parties principales :
+L'application est composée de trois parties principales :
 - **API** : Une API Node.js (Express) exposée sur le port 3000
 - **FRONT** : Une application React servie par Nginx sur le port 8080
+- **SQL Server** : Une base de données SQL Server exposée sur le port 1433
 
 ## Méthode de déploiement
 
@@ -32,17 +33,10 @@ Les workflows utilisent les secrets GitHub suivants :
 - `PASSWORD` : Mot de passe SSH pour se connecter au serveur
 - `PORT` : Port SSH du serveur (généralement 22)
 
-#### Secrets pour la base de données
-- `DB_HOST` : Adresse du serveur de base de données
-- `DB_PORT` : Port de la base de données (généralement 1433 pour SQL Server)
-- `DB_NAME` : Nom de la base de données
-- `DB_USER` : Nom d'utilisateur pour la connexion à la base de données
-- `DB_PASSWORD` : Mot de passe pour la connexion à la base de données
-
 ## Configuration réseau Docker
 
 L'application utilise deux réseaux Docker :
-- **torres-network** : Réseau interne pour la communication entre l'API et le FRONT
+- **torres-network** : Réseau interne pour la communication entre l'API, le FRONT et SQL Server
 - **nginx-proxy-manager_default** : Réseau externe pour la communication avec Nginx Proxy Manager
 
 Cette configuration permet au reverse proxy d'accéder directement aux conteneurs par leur nom, sans passer par l'interface réseau externe du serveur.
@@ -52,6 +46,18 @@ Cette configuration permet au reverse proxy d'accéder directement aux conteneur
 Le reverse proxy (Nginx Proxy Manager) doit être configuré pour pointer vers :
 - **Front-end** : torres-front:80
 - **API** : torres-api:3000
+
+## Base de données SQL Server
+
+L'application utilise SQL Server comme base de données. Un conteneur Docker est automatiquement créé lors du déploiement avec les paramètres suivants :
+
+- **Nom du conteneur** : torres-sqlserver
+- **Port** : 1433
+- **Utilisateur** : sa
+- **Mot de passe** : Password123!
+- **Base de données** : TP_CSID
+
+Les données sont persistantes grâce à un volume Docker nommé `sqlserver-data`.
 
 ## Déploiement manuel
 
@@ -63,26 +69,16 @@ Si vous souhaitez déployer manuellement l'application, suivez ces étapes :
    cd torres-app
    ```
 
-2. Créez un fichier .env avec les informations de connexion à la base de données :
-   ```bash
-   cat > .env << EOF
-   DB_HOST=votre_serveur_db
-   DB_PORT=1433
-   DB_NAME=votre_base_de_donnees
-   DB_USER=votre_utilisateur
-   DB_PASSWORD=votre_mot_de_passe
-   EOF
-   ```
-
-3. Déployez avec Docker Compose :
+2. Déployez avec Docker Compose :
    ```bash
    docker-compose up -d
    ```
 
-4. Connectez les conteneurs au réseau du reverse proxy :
+3. Connectez les conteneurs au réseau du reverse proxy :
    ```bash
    docker network connect nginx-proxy-manager_default torres-api
    docker network connect nginx-proxy-manager_default torres-front
+   docker network connect nginx-proxy-manager_default torres-sqlserver
    ```
 
 ## Vérification du déploiement
@@ -117,21 +113,64 @@ docker logs torres-api
 # Logs du FRONT
 docker logs torres-front
 
+# Logs de SQL Server
+docker logs torres-sqlserver
+
 # Logs de tous les conteneurs
 docker-compose logs
+```
+
+### Accès à la base de données
+
+Pour accéder à la base de données SQL Server :
+```bash
+# Se connecter à SQL Server
+docker exec -it torres-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Password123!"
+
+# Exécuter des requêtes SQL
+1> USE TP_CSID;
+2> GO
+1> SELECT * FROM information_schema.tables;
+2> GO
+```
+
+### Sauvegarde de la base de données
+
+Pour sauvegarder la base de données :
+```bash
+# Créer un répertoire pour les sauvegardes
+mkdir -p ~/torres-app/backups
+
+# Sauvegarder la base de données
+docker exec -it torres-sqlserver /opt/mssql-tools/bin/sqlcmd \
+  -S localhost -U sa -P "Password123!" \
+  -Q "BACKUP DATABASE TP_CSID TO DISK = N'/var/opt/mssql/backup/TP_CSID_$(date +%Y%m%d_%H%M%S).bak' WITH NOFORMAT, NOINIT, NAME = 'TP_CSID-Full Database Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 10"
+
+# Copier la sauvegarde sur le serveur hôte
+docker cp torres-sqlserver:/var/opt/mssql/backup/ ~/torres-app/backups/
 ```
 
 ### Dépannage de la connexion à la base de données
 
 Si l'API ne parvient pas à se connecter à la base de données, vérifiez les points suivants :
 
-1. Assurez-vous que les secrets GitHub pour la base de données sont correctement configurés
-2. Vérifiez que le serveur de base de données est accessible depuis le conteneur API
-3. Consultez les logs de l'API pour voir les erreurs de connexion :
+1. Vérifiez que le conteneur SQL Server est en cours d'exécution :
    ```bash
-   docker logs torres-api
+   docker ps | grep torres-sqlserver
    ```
-4. Testez la connexion à la base de données depuis le serveur :
+
+2. Vérifiez les logs de SQL Server :
    ```bash
-   docker exec -it torres-api node -e "const sql = require('mssql'); sql.connect({user: process.env.DB_USER, password: process.env.DB_PASSWORD, database: process.env.DB_NAME, server: process.env.DB_HOST, port: parseInt(process.env.DB_PORT), options: {encrypt: true, trustServerCertificate: true}}).then(() => console.log('Connexion réussie')).catch(err => console.error('Erreur de connexion:', err))"
+   docker logs torres-sqlserver
+   ```
+
+3. Testez la connexion à la base de données depuis le serveur :
+   ```bash
+   docker exec -it torres-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Password123!" -Q "SELECT @@VERSION"
+   ```
+
+4. Vérifiez que les conteneurs sont sur le même réseau Docker :
+   ```bash
+   docker network inspect torres-network
+   docker network inspect nginx-proxy-manager_default
    ``` 
