@@ -49,27 +49,32 @@ jobs:
             docker stop torres-api || true
             docker rm torres-api || true
             
-            # Lancer le nouveau conteneur avec les variables d'environnement pour la BDD existante
+            # Obtenir le nom du conteneur SQL Server
+            SQL_CONTAINER_NAME=$(docker ps --filter "publish=1433" --format "{{.Names}}")
+            echo "Conteneur SQL Server détecté: $SQL_CONTAINER_NAME"
+            
+            # Obtenir l'adresse IP du conteneur SQL Server sur le réseau bridge
+            SQL_CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $SQL_CONTAINER_NAME)
+            echo "Adresse IP du conteneur SQL Server: $SQL_CONTAINER_IP"
+            
+            # Lancer le nouveau conteneur API sur le même réseau que SQL Server
             echo "Démarrage de l'API..."
             docker run -d --name torres-api \
               -p 3000:3000 \
               --restart always \
-              --network nginx-proxy-manager_default \
+              --network bridge \
               -e NODE_ENV=production \
-              -e DB_HOST='${{ secrets.DB_HOST }}' \
-              -e DB_PORT='${{ secrets.DB_PORT }}' \
-              -e DB_NAME='${{ secrets.DB_NAME }}' \
-              -e DB_USER='${{ secrets.DB_USER }}' \
-              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+              -e DB_HOST="$SQL_CONTAINER_IP" \
+              -e DB_PORT='1433' \
+              -e DB_NAME='TP_CSID' \
+              -e DB_USER='sa' \
+              -e DB_PASSWORD='azertyuiop1234!' \
               ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
-            
-            # Connecter également au réseau bridge si nécessaire
-            docker network connect bridge torres-api || true
             
             # Nettoyer les images non utilisées
             docker image prune -f
             
             # Afficher les logs pour vérifier la connexion à la base de données
-            echo "Logs de l'API (10 premières lignes) :"
+            echo "Logs de l'API (20 premières lignes) :"
             sleep 5
-            docker logs torres-api --tail 10 
+            docker logs torres-api --tail 20 
