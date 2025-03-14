@@ -174,24 +174,7 @@ jobs:
           export PATH=$PATH:~/node_modules/.bin
           ~/node/bin/pm2 -v || echo "Échec de l'installation de PM2"
     
-    - name: Create deployment directory on server
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        timeout: 60s
-        command_timeout: 60s
-        script: |
-          echo "Création du répertoire de déploiement..."
-          mkdir -p ~/app/front/build
-          echo "Répertoire créé: ~/app/front/build"
-          ls -la ~/app
-    
-    - name: Deploy frontend build
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    - name: Prepare frontend build
       run: |
         # Rechercher le répertoire front avec un package.json
         FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
@@ -209,14 +192,10 @@ jobs:
         # Créer un fichier tar pour le transfert
         tar -czf build.tar.gz -C "$BUILD_DIR" .
         
-        # Utiliser sshpass pour le transfert
-        echo "Transfert des fichiers vers le serveur..."
-        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} build.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/app/front/
-        
-        # Décompresser l'archive sur le serveur
-        sshpass -p "${{ secrets.PASSWORD }}" ssh -o StrictHostKeyChecking=no -p ${{ secrets.PORT }} ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd ~/app/front && tar -xzf build.tar.gz -C build && rm build.tar.gz"
+        echo "Archive build créée:"
+        ls -la build.tar.gz
     
-    - name: Start frontend server
+    - name: Deploy and start frontend
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -224,25 +203,81 @@ jobs:
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
-        timeout: 60s
-        command_timeout: 60s
+        timeout: 180s
+        command_timeout: 180s
         script: |
-          cd ~/app/front
+          echo "Préparation du déploiement du frontend..."
           
-          echo "Contenu du répertoire front/build:"
-          ls -la build
+          # Créer les répertoires nécessaires
+          mkdir -p ~/app/front/build
           
-          # Utiliser le chemin complet vers PM2 si nécessaire
-          if command -v pm2 &> /dev/null; then
-            pm2 delete front 2>/dev/null || true
-            pm2 serve build 3000 --name front --spa
-          elif [ -f ~/node/bin/pm2 ]; then
-            ~/node/bin/pm2 delete front 2>/dev/null || true
-            ~/node/bin/pm2 serve build 3000 --name front --spa
-          elif [ -f ~/node_modules/.bin/pm2 ]; then
-            ~/node_modules/.bin/pm2 delete front 2>/dev/null || true
-            ~/node_modules/.bin/pm2 serve build 3000 --name front --spa
+          echo "Répertoires créés:"
+          ls -la ~/app
+          
+          # Nettoyer le répertoire de build existant
+          rm -rf ~/app/front/build/*
+          
+          echo "Attente du transfert des fichiers..."
+    
+    - name: Transfer frontend build
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: |
+        # Utiliser sshpass pour le transfert
+        echo "Transfert des fichiers vers le serveur..."
+        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} build.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/app/front/
+        
+        echo "Fichiers transférés avec succès."
+    
+    - name: Extract and start frontend
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 180s
+        command_timeout: 180s
+        script: |
+          echo "Extraction et démarrage du frontend..."
+          
+          # Vérifier si l'archive existe
+          if [ -f ~/app/front/build.tar.gz ]; then
+            echo "Archive trouvée, extraction en cours..."
+            cd ~/app/front
+            tar -xzf build.tar.gz -C build
+            rm build.tar.gz
+            
+            echo "Contenu du répertoire build:"
+            ls -la build
+            
+            # Démarrer le serveur frontend avec PM2
+            echo "Démarrage du serveur frontend..."
+            
+            # Trouver PM2
+            PM2_CMD=""
+            if command -v pm2 &> /dev/null; then
+              PM2_CMD="pm2"
+            elif [ -f ~/node/bin/pm2 ]; then
+              PM2_CMD="~/node/bin/pm2"
+            elif [ -f ~/node_modules/.bin/pm2 ]; then
+              PM2_CMD="~/node_modules/.bin/pm2"
+            else
+              echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
+              exit 1
+            fi
+            
+            # Arrêter l'instance existante si elle existe
+            $PM2_CMD delete front 2>/dev/null || true
+            
+            # Démarrer le serveur
+            echo "Démarrage avec $PM2_CMD..."
+            $PM2_CMD serve build 3000 --name front --spa
+            
+            echo "Frontend démarré avec succès."
+            $PM2_CMD list
           else
-            echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
+            echo "Erreur: Archive build.tar.gz non trouvée dans ~/app/front/"
+            ls -la ~/app/front/
             exit 1
           fi 
