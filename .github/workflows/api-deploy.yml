@@ -199,4 +199,12 @@ jobs:
           echo "Vérification du conteneur:"
           docker ps | grep torres-api
           
+          # Vérification des logs du conteneur
+          echo "Logs du conteneur API:"
+          docker logs torres-api
+          
+          # Vérification de l'état du conteneur
+          echo "État du conteneur API:"
+          docker inspect torres-api --format='{{.State.Status}} - {{.State.Health.Status}}'
+          
           echo "Déploiement Docker de l'API terminé avec succès." 

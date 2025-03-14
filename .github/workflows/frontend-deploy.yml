@@ -257,4 +257,12 @@ jobs:
           echo "Vérification du conteneur:"
           docker ps | grep torres-frontend
           
+          # Vérification des logs du conteneur
+          echo "Logs du conteneur Frontend:"
+          docker logs torres-frontend
+          
+          # Vérification de l'état du conteneur
+          echo "État du conteneur Frontend:"
+          docker inspect torres-frontend --format='{{.State.Status}} - {{.State.Health.Status}}'
+          
           echo "Déploiement Docker du frontend terminé avec succès." 
