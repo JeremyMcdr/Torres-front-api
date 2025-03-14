@@ -14,6 +14,14 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
+    - name: List directory structure
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -la
+        echo "Root directory contents:"
+        ls -la /home/runner/work
+    
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
@@ -21,13 +29,31 @@ jobs:
     
     - name: Install dependencies
       run: |
-        cd api
-        npm ci
+        # Vérifier si le répertoire api existe
+        if [ -d "api" ]; then
+          cd api
+          npm ci
+        elif [ -d "API" ]; then
+          cd API
+          npm ci
+        else
+          echo "Le répertoire api ou API n'existe pas"
+          exit 1
+        fi
     
     - name: Run tests
       run: |
-        cd api
-        npm test || true
+        # Vérifier si le répertoire api existe
+        if [ -d "api" ]; then
+          cd api
+          npm test || true
+        elif [ -d "API" ]; then
+          cd API
+          npm test || true
+        else
+          echo "Le répertoire api ou API n'existe pas"
+          exit 1
+        fi
     
     - name: Deploy to production server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
