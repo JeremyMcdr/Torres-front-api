@@ -112,6 +112,22 @@ jobs:
           echo "Server information: $(uname -a)"
           echo "Docker version: $(docker --version || echo 'Docker non installé')"
     
+    - name: Create deployment directory on server
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 60s
+        command_timeout: 60s
+        script: |
+          echo "Création du répertoire de déploiement..."
+          mkdir -p ~/docker-deploy
+          echo "Répertoire créé: ~/docker-deploy"
+          ls -la ~/
+    
     - name: Prepare API package for deployment
       run: |
         API_DIR="${{ steps.find-api.outputs.API_DIR }}"
@@ -172,9 +188,12 @@ jobs:
           docker stop torres-api 2>/dev/null || true
           docker rm torres-api 2>/dev/null || true
           
+          # Créer un réseau Docker s'il n'existe pas déjà
+          docker network create torres-network 2>/dev/null || true
+          
           # Démarrer le nouveau conteneur
           echo "Démarrage du nouveau conteneur..."
-          docker run -d --name torres-api -p 3001:3001 --restart always torres-api:latest
+          docker run -d --name torres-api -p 3001:3001 --restart always --network torres-network torres-api:latest
           
           # Vérifier que le conteneur est en cours d'exécution
           echo "Vérification du conteneur:"

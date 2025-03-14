@@ -164,6 +164,22 @@ jobs:
           echo "Server information: $(uname -a)"
           echo "Docker version: $(docker --version || echo 'Docker non installé')"
     
+    - name: Create deployment directory on server
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 60s
+        command_timeout: 60s
+        script: |
+          echo "Création du répertoire de déploiement..."
+          mkdir -p ~/docker-deploy
+          echo "Répertoire créé: ~/docker-deploy"
+          ls -la ~/
+    
     - name: Prepare frontend package for deployment
       run: |
         FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
