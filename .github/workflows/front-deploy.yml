@@ -51,7 +51,7 @@ jobs:
             
             # Lancer le nouveau conteneur
             docker run -d --name torres-front \
-              -p 80:80 \
+              -p 8080:80 \
               --restart always \
               --link torres-api:api \
               ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest

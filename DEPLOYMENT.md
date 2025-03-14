@@ -6,7 +6,7 @@ Ce document explique comment l'application Torres est déployée automatiquement
 
 L'application est composée de deux parties principales :
 - **API** : Une API Node.js (Express) exposée sur le port 3000
-- **FRONT** : Une application React servie par Nginx sur le port 80
+- **FRONT** : Une application React servie par Nginx sur le port 8080
 
 ## Méthode de déploiement
 
@@ -48,7 +48,7 @@ Si vous souhaitez déployer manuellement l'application, suivez ces étapes :
 ## Vérification du déploiement
 
 Une fois déployée, l'application est accessible :
-- Front-end : http://votre-serveur
+- Front-end : http://votre-serveur:8080
 - API : http://votre-serveur:3000
 
 ## Maintenance
