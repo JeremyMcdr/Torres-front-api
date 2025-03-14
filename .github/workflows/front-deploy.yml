@@ -1,11 +1,11 @@
-name: Deploy API
+name: Deploy FRONT
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'API/**'
-      - '.github/workflows/api-deploy.yml'
+      - 'FRONT/**'
+      - '.github/workflows/front-deploy.yml'
 
 jobs:
   build-and-deploy:
@@ -24,12 +24,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
       
-      - name: Build and push API Docker image
+      - name: Build and push FRONT Docker image
         uses: docker/build-push-action@v4
         with:
-          context: ./API
+          context: ./FRONT
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest
       
       - name: Deploy to server
         uses: appleboy/ssh-action@master
@@ -43,17 +43,18 @@ jobs:
             mkdir -p ~/torres-app
             
             # Télécharger l'image Docker mise à jour
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest
             
             # Arrêter et supprimer le conteneur existant s'il existe
-            docker stop torres-api || true
-            docker rm torres-api || true
+            docker stop torres-front || true
+            docker rm torres-front || true
             
             # Lancer le nouveau conteneur
-            docker run -d --name torres-api \
-              -p 3000:3000 \
+            docker run -d --name torres-front \
+              -p 80:80 \
               --restart always \
-              ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
+              --link torres-api:api \
+              ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest
             
             # Nettoyer les images non utilisées
             docker image prune -f 

@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  api:
+    build: ./API
+    container_name: torres-api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - torres-network
+
+  front:
+    build: ./FRONT
+    container_name: torres-front
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - torres-network
+
+networks:
+  torres-network:
+    driver: bridge 

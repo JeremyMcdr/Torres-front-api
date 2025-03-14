@@ -1,0 +1,76 @@
+name: Deploy Full Application
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docker-compose.yml'
+      - '.github/workflows/full-deploy.yml'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      
+      - name: Build and push API Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./API
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
+      
+      - name: Build and push FRONT Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./FRONT
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest
+      
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: ${{ secrets.PORT }}
+          source: "docker-compose.yml"
+          target: "~/torres-app"
+      
+      - name: Deploy with docker-compose
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: ${{ secrets.PORT }}
+          script: |
+            # Aller dans le répertoire du projet
+            cd ~/torres-app
+            
+            # Modifier le docker-compose.yml pour utiliser les images Docker Hub
+            sed -i 's|build: ./API|image: ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest|g' docker-compose.yml
+            sed -i 's|build: ./FRONT|image: ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest|g' docker-compose.yml
+            
+            # Arrêter les conteneurs existants
+            docker-compose down || true
+            
+            # Télécharger les images mises à jour
+            docker-compose pull
+            
+            # Démarrer les nouveaux conteneurs
+            docker-compose up -d
+            
+            # Nettoyer les images non utilisées
+            docker image prune -f 
