@@ -238,23 +238,15 @@ jobs:
                   try_files $uri $uri/ /index.html;
               }
           
-              # Rediriger les requêtes API vers le backend en utilisant un chemin relatif
-              location /api {
-                  # Utiliser l'adresse IP du serveur directement
-                  proxy_pass http://159.203.139.99:3001;
-                  proxy_http_version 1.1;
-                  proxy_set_header Upgrade $http_upgrade;
-                  proxy_set_header Connection 'upgrade';
-                  proxy_set_header Host $host;
-                  proxy_cache_bypass $http_upgrade;
-              }
+              # Configuration simplifiée - pas de redirection API
+              # Les redirections API seront gérées par Nginx Proxy Manager
           }
           EOF
           
           # Démarrer le nouveau conteneur avec la configuration personnalisée
           echo "Démarrage du nouveau conteneur..."
           docker run -d --name torres-frontend \
-            -p 3000:80 \
+            -p 3002:80 \
             --restart always \
             --network torres-network \
             -v ~/docker-deploy/nginx.conf:/etc/nginx/conf.d/default.conf \
