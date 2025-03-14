@@ -3,12 +3,8 @@ name: API Deployment
 on:
   push:
     branches: [ main, master ]
-    paths:
-      - 'api/**'
   pull_request:
     branches: [ main, master ]
-    paths:
-      - 'api/**'
   workflow_dispatch:
 
 jobs:

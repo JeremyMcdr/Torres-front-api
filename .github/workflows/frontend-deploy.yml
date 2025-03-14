@@ -3,12 +3,8 @@ name: Frontend Deployment
 on:
   push:
     branches: [ main, master ]
-    paths:
-      - 'front/**'
   pull_request:
     branches: [ main, master ]
-    paths:
-      - 'front/**'
   workflow_dispatch:
 
 jobs:
