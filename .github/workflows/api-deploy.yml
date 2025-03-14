@@ -117,7 +117,7 @@ jobs:
           echo "Current directory: $(pwd)"
           echo "Server information: $(uname -a)"
     
-    - name: Install PM2 on server
+    - name: Check and install PM2 on server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -128,23 +128,49 @@ jobs:
         timeout: 120s
         command_timeout: 120s
         script: |
-          echo "Vérification de Node.js et npm..."
+          echo "Vérification des commandes disponibles..."
+          echo "Node.js: $(command -v node || echo 'Non installé')"
+          echo "npm: $(command -v npm || echo 'Non installé')"
+          echo "PM2: $(command -v pm2 || echo 'Non installé')"
+          
+          # Vérifier si PM2 est déjà installé
+          if command -v pm2 &> /dev/null; then
+            echo "PM2 est déjà installé."
+            pm2 -v
+            exit 0
+          fi
+          
+          # Vérifier si npm est disponible
+          if command -v npm &> /dev/null; then
+            echo "npm est disponible, installation de PM2..."
+            npm install -g pm2 || sudo npm install -g pm2
+            exit 0
+          fi
+          
+          echo "Installation manuelle de PM2..."
+          # Créer un répertoire temporaire pour l'installation
+          mkdir -p ~/pm2-install
+          cd ~/pm2-install
+          
+          # Télécharger et installer Node.js manuellement si nécessaire
           if ! command -v node &> /dev/null; then
-            echo "Node.js n'est pas installé. Installation en cours..."
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt-get install -y nodejs
+            echo "Téléchargement de Node.js..."
+            curl -o node.tar.gz https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.gz
+            mkdir -p ~/node
+            tar -xzf node.tar.gz -C ~/node --strip-components=1
+            export PATH=$PATH:~/node/bin
+            echo 'export PATH=$PATH:~/node/bin' >> ~/.bashrc
           fi
           
-          echo "Vérification de PM2..."
-          if ! command -v pm2 &> /dev/null; then
-            echo "PM2 n'est pas installé. Installation en cours..."
-            sudo npm install -g pm2
-          fi
+          # Installer PM2 localement
+          echo "Installation de PM2 localement..."
+          export PATH=$PATH:~/node/bin
+          ~/node/bin/npm install pm2 -g
           
-          echo "Versions installées:"
-          node -v
-          npm -v
-          pm2 -v
+          # Vérifier l'installation
+          echo "Vérification de l'installation de PM2..."
+          export PATH=$PATH:~/node_modules/.bin
+          ~/node/bin/pm2 -v || echo "Échec de l'installation de PM2"
     
     - name: Deploy to production server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -164,4 +190,15 @@ jobs:
           # Copier les fichiers de l'API
           git pull || echo "Git pull failed, continuing with deployment"
           npm install
-          pm2 restart api || pm2 start index.js --name api --port 3001 
+          
+          # Utiliser le chemin complet vers PM2 si nécessaire
+          if command -v pm2 &> /dev/null; then
+            pm2 restart api || pm2 start index.js --name api --port 3001
+          elif [ -f ~/node/bin/pm2 ]; then
+            ~/node/bin/pm2 restart api || ~/node/bin/pm2 start index.js --name api --port 3001
+          elif [ -f ~/node_modules/.bin/pm2 ]; then
+            ~/node_modules/.bin/pm2 restart api || ~/node_modules/.bin/pm2 start index.js --name api --port 3001
+          else
+            echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
+            exit 1
+          fi 
