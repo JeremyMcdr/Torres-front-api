@@ -1,0 +1,29 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Installer les dépendances de débogage
+RUN apk add --no-cache curl nano
+
+# Copier package.json et installer les dépendances
+COPY ../FRONT/package*.json ./
+RUN npm install
+
+# Copier le reste des fichiers
+COPY ../FRONT .
+
+# Exposer le port
+EXPOSE 3000
+
+# Créer un script de démarrage pour capturer les erreurs
+RUN echo "#!/bin/sh" > /start.sh
+RUN echo "echo '=== Démarrage du conteneur Frontend (dev) ==='" >> /start.sh
+RUN echo "echo 'Contenu du répertoire:'" >> /start.sh
+RUN echo "ls -la" >> /start.sh
+RUN echo "echo 'Variables d\\'environnement:'" >> /start.sh
+RUN echo "env | sort" >> /start.sh
+RUN echo "echo 'Démarrage du serveur de développement...'" >> /start.sh
+RUN echo "CI=false npm start || (echo 'Erreur de démarrage:' && cat /app/npm-debug.log 2>/dev/null)" >> /start.sh
+RUN chmod +x /start.sh
+
+CMD ["/start.sh"] 

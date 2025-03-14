@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ../API
+    container_name: torres-api
+    ports:
+      - "3001:3001"
+    environment:
+      - DB_SERVER=159.203.139.99,1433
+      - DB_USER=sa
+      - DB_PASSWORD=azertyuiop1234!
+      - DB_DATABASE=TP_CSID
+      - PORT=3001
+      - NODE_ENV=development
+    volumes:
+      - ../API:/app
+      - /app/node_modules
+    networks:
+      - torres-network
+    command: >
+      sh -c "echo 'Démarrage de l API Torres...' &&
+             echo 'Environnement: ' $NODE_ENV &&
+             echo 'Port d écoute: ' $PORT &&
+             node index.js"
+
+  frontend:
+    build:
+      context: ../FRONT
+      dockerfile: Dockerfile.dev
+    container_name: torres-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../FRONT:/app
+      - /app/node_modules
+    networks:
+      - torres-network
+    depends_on:
+      - api
+
+networks:
+  torres-network:
+    driver: bridge 

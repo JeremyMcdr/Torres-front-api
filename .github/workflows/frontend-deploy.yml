@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     
     steps:
@@ -80,20 +80,9 @@ jobs:
         # Copier les fichiers de build
         COPY build/ /usr/share/nginx/html
 
-        # Créer un script de démarrage pour capturer les erreurs
-        RUN echo "#!/bin/sh" > /start.sh
-        RUN echo "echo 'Démarrage du conteneur Frontend...'" >> /start.sh
-        RUN echo "echo 'Vérification de la configuration Nginx:'" >> /start.sh
-        RUN echo "nginx -t" >> /start.sh
-        RUN echo "echo 'Contenu du répertoire web:'" >> /start.sh
-        RUN echo "ls -la /usr/share/nginx/html" >> /start.sh
-        RUN echo "echo 'Démarrage de Nginx...'" >> /start.sh
-        RUN echo "nginx -g 'daemon off;'" >> /start.sh
-        RUN chmod +x /start.sh
-
         EXPOSE 80
 
-        CMD ["/start.sh"]
+        CMD ["nginx", "-g", "daemon off;"]
         EOF
         
         # Créer la configuration nginx
@@ -126,6 +115,22 @@ jobs:
         echo "Configuration nginx créée:"
         cat $FRONT_DIR/nginx.conf
     
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+    
+    - name: Build and push Frontend image
+      uses: docker/build-push-action@v4
+      with:
+        context: ${{ steps.find-front.outputs.FRONT_DIR }}
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/torres-frontend:latest
+    
     - name: Verify secrets
       run: |
         echo "Vérification des secrets..."
@@ -157,10 +162,29 @@ jobs:
           echo "✅ Le secret PORT est défini"
         fi
         
+        if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+          echo "❌ Le secret DOCKERHUB_USERNAME n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret DOCKERHUB_USERNAME est défini"
+        fi
+        
+        if [ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
+          echo "❌ Le secret DOCKERHUB_PASSWORD n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret DOCKERHUB_PASSWORD est défini"
+        fi
+        
         echo "Tous les secrets nécessaires sont définis"
+  
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     
+    steps:
     - name: Test SSH connection
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.HOST }}
@@ -175,46 +199,7 @@ jobs:
           echo "Server information: $(uname -a)"
           echo "Docker version: $(docker --version || echo 'Docker non installé')"
     
-    - name: Create deployment directory on server
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        timeout: 60s
-        command_timeout: 60s
-        script: |
-          echo "Création du répertoire de déploiement..."
-          mkdir -p ~/docker-deploy
-          echo "Répertoire créé: ~/docker-deploy"
-          ls -la ~/
-    
-    - name: Prepare frontend package for deployment
-      run: |
-        FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
-        
-        # S'assurer que nous sommes dans le bon répertoire
-        echo "Préparation du package frontend depuis: $FRONT_DIR"
-        
-        # Créer une archive contenant le build, le Dockerfile et la configuration nginx
-        tar -czf frontend.tar.gz -C "$FRONT_DIR" build Dockerfile nginx.conf
-        
-        echo "Archive frontend créée:"
-        ls -la frontend.tar.gz
-    
-    - name: Transfer frontend files to server
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      run: |
-        # Utiliser sshpass pour le transfert
-        echo "Transfert des fichiers vers le serveur..."
-        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} frontend.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/docker-deploy/
-        
-        echo "Fichiers transférés avec succès."
-    
-    - name: Build and run Docker container
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    - name: Deploy Frontend container
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.HOST }}
@@ -224,30 +209,7 @@ jobs:
         timeout: 180s
         command_timeout: 180s
         script: |
-          echo "Préparation du déploiement Docker pour le frontend..."
-          
-          # Créer le répertoire de déploiement s'il n'existe pas
-          mkdir -p ~/docker-deploy/frontend
-          
-          # Extraire l'archive
-          cd ~/docker-deploy
-          tar -xzf frontend.tar.gz -C frontend
-          rm frontend.tar.gz
-          
-          cd frontend
-          
-          echo "Contenu du répertoire frontend:"
-          ls -la
-          
-          # Vérifier que le Dockerfile existe
-          if [ ! -f "Dockerfile" ]; then
-            echo "Erreur: Dockerfile non trouvé"
-            exit 1
-          fi
-          
-          # Construire l'image Docker
-          echo "Construction de l'image Docker..."
-          docker build -t torres-frontend:latest .
+          echo "Déploiement du conteneur Frontend..."
           
           # Arrêter et supprimer le conteneur existant s'il existe
           echo "Arrêt du conteneur existant..."
@@ -257,12 +219,17 @@ jobs:
           # Créer un réseau Docker s'il n'existe pas déjà
           docker network create torres-network 2>/dev/null || true
           
-          # Connecter le conteneur API au réseau s'il existe
-          docker network connect torres-network torres-api 2>/dev/null || true
+          # Télécharger la dernière image depuis Docker Hub
+          echo "Téléchargement de l'image depuis Docker Hub..."
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/torres-frontend:latest
           
           # Démarrer le nouveau conteneur
           echo "Démarrage du nouveau conteneur..."
-          docker run -d --name torres-frontend -p 3000:80 --restart always --network torres-network torres-frontend:latest
+          docker run -d --name torres-frontend \
+            -p 3000:80 \
+            --restart always \
+            --network torres-network \
+            ${{ secrets.DOCKERHUB_USERNAME }}/torres-frontend:latest
           
           # Attendre quelques secondes pour que le conteneur démarre
           echo "Attente de 10 secondes pour le démarrage du conteneur..."
@@ -272,16 +239,9 @@ jobs:
           echo "Vérification du conteneur:"
           docker ps -a | grep torres-frontend
           
-          # Vérification des logs du conteneur avec différentes options
+          # Vérification des logs du conteneur
           echo "Logs du conteneur Frontend (tail):"
           docker logs --tail 50 torres-frontend
-          
-          echo "Logs du conteneur Frontend (depuis le début):"
-          docker logs torres-frontend
-          
-          # Vérification détaillée de l'état du conteneur
-          echo "État détaillé du conteneur Frontend:"
-          docker inspect torres-frontend
           
           # Vérifier si le conteneur est réellement en cours d'exécution
           CONTAINER_RUNNING=$(docker inspect -f '{{.State.Running}}' torres-frontend)

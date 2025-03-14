@@ -1,0 +1,39 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Installer les dépendances de débogage
+RUN apk add --no-cache curl nano
+
+# Copier package.json et installer les dépendances
+COPY ../API/package*.json ./
+RUN npm install
+
+# Copier le reste des fichiers
+COPY ../API .
+
+# Ajouter des logs explicites
+RUN echo "console.log('=== Démarrage de l\\'API Torres ===');" >> index.js
+RUN echo "console.log('Environnement: ' + process.env.NODE_ENV);" >> index.js
+RUN echo "console.log('Port d\\'écoute: ' + (process.env.PORT || 3001));" >> index.js
+RUN echo "console.log('Configuration de la base de données:');" >> index.js
+RUN echo "console.log('  Serveur: ' + process.env.DB_SERVER);" >> index.js
+RUN echo "console.log('  Base de données: ' + process.env.DB_DATABASE);" >> index.js
+RUN echo "console.log('  Utilisateur: ' + process.env.DB_USER);" >> index.js
+RUN echo "console.log('=== Fin de la configuration ===');" >> index.js
+
+# Exposer le port
+EXPOSE 3001
+
+# Créer un script de démarrage pour capturer les erreurs
+RUN echo "#!/bin/sh" > /start.sh
+RUN echo "echo '=== Démarrage du conteneur API ==='" >> /start.sh
+RUN echo "echo 'Contenu du répertoire:'" >> /start.sh
+RUN echo "ls -la" >> /start.sh
+RUN echo "echo 'Variables d\\'environnement:'" >> /start.sh
+RUN echo "env | sort" >> /start.sh
+RUN echo "echo 'Démarrage de Node.js...'" >> /start.sh
+RUN echo "node --trace-warnings index.js || (echo 'Erreur de démarrage:' && cat /app/npm-debug.log 2>/dev/null)" >> /start.sh
+RUN chmod +x /start.sh
+
+CMD ["/start.sh"] 
