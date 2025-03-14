@@ -117,6 +117,35 @@ jobs:
           echo "Current directory: $(pwd)"
           echo "Server information: $(uname -a)"
     
+    - name: Install PM2 on server
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 120s
+        command_timeout: 120s
+        script: |
+          echo "Vérification de Node.js et npm..."
+          if ! command -v node &> /dev/null; then
+            echo "Node.js n'est pas installé. Installation en cours..."
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+          fi
+          
+          echo "Vérification de PM2..."
+          if ! command -v pm2 &> /dev/null; then
+            echo "PM2 n'est pas installé. Installation en cours..."
+            sudo npm install -g pm2
+          fi
+          
+          echo "Versions installées:"
+          node -v
+          npm -v
+          pm2 -v
+    
     - name: Deploy to production server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
@@ -129,12 +158,10 @@ jobs:
         command_timeout: 120s
         script: |
           echo "Déploiement de l'API..."
-          cd /path/to/your/app/api || mkdir -p /path/to/your/app/api
-          
-          # Rechercher le répertoire api dans le dépôt
-          API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+          mkdir -p /path/to/your/app/api
+          cd /path/to/your/app/api
           
           # Copier les fichiers de l'API
-          git pull
+          git pull || echo "Git pull failed, continuing with deployment"
           npm install
           pm2 restart api || pm2 start index.js --name api --port 3001 

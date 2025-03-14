@@ -119,6 +119,35 @@ jobs:
           echo "Current directory: $(pwd)"
           echo "Server information: $(uname -a)"
     
+    - name: Install PM2 on server
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 120s
+        command_timeout: 120s
+        script: |
+          echo "Vérification de Node.js et npm..."
+          if ! command -v node &> /dev/null; then
+            echo "Node.js n'est pas installé. Installation en cours..."
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+          fi
+          
+          echo "Vérification de PM2..."
+          if ! command -v pm2 &> /dev/null; then
+            echo "PM2 n'est pas installé. Installation en cours..."
+            sudo npm install -g pm2
+          fi
+          
+          echo "Versions installées:"
+          node -v
+          npm -v
+          pm2 -v
+    
     - name: Prepare deployment directory
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
