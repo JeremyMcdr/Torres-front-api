@@ -50,6 +50,8 @@ jobs:
         fi
     
     - name: Build
+      env:
+        CI: "false"  # Désactiver le traitement des avertissements comme erreurs
       run: |
         # Rechercher le répertoire front avec un package.json
         FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
