@@ -184,10 +184,11 @@ jobs:
       run: |
         FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
         
+        # S'assurer que nous sommes dans le bon répertoire
+        echo "Préparation du package frontend depuis: $FRONT_DIR"
+        
         # Créer une archive contenant le build, le Dockerfile et la configuration nginx
-        cd $FRONT_DIR
-        tar -czf ../../frontend.tar.gz build Dockerfile nginx.conf
-        cd ../..
+        tar -czf frontend.tar.gz -C "$FRONT_DIR" build Dockerfile nginx.conf
         
         echo "Archive frontend créée:"
         ls -la frontend.tar.gz
