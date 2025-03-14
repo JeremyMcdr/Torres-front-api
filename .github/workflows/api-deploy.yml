@@ -32,10 +32,10 @@ jobs:
         # Vérifier si le répertoire api existe
         if [ -d "api" ]; then
           cd api
-          npm ci
+          npm install
         elif [ -d "API" ]; then
           cd API
-          npm ci
+          npm install
         else
           echo "Le répertoire api ou API n'existe pas"
           exit 1
@@ -66,5 +66,5 @@ jobs:
         script: |
           cd /path/to/your/app/api
           git pull
-          npm ci
+          npm install
           pm2 restart api || pm2 start index.js --name api --port 3001 

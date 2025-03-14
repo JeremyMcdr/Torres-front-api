@@ -32,10 +32,10 @@ jobs:
         # Vérifier si le répertoire front existe
         if [ -d "front" ]; then
           cd front
-          npm ci
+          npm install
         elif [ -d "FRONT" ]; then
           cd FRONT
-          npm ci
+          npm install
         else
           echo "Le répertoire front ou FRONT n'existe pas"
           exit 1
