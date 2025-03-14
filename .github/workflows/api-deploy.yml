@@ -172,7 +172,53 @@ jobs:
           export PATH=$PATH:~/node_modules/.bin
           ~/node/bin/pm2 -v || echo "Échec de l'installation de PM2"
     
-    - name: Deploy to production server
+    - name: Prepare API package for deployment
+      run: |
+        # Rechercher le répertoire api avec un package.json
+        API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+        
+        if [ -z "$API_DIR" ]; then
+          echo "Aucun répertoire api ou API trouvé"
+          exit 1
+        fi
+        
+        echo "Utilisation du répertoire: $API_DIR"
+        echo "Contenu du répertoire API:"
+        ls -la "$API_DIR"
+        
+        # Créer un fichier tar pour le transfert
+        tar -czf api.tar.gz -C "$API_DIR" .
+        
+        echo "Archive API créée:"
+        ls -la api.tar.gz
+    
+    - name: Create deployment directory on server
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 60s
+        command_timeout: 60s
+        script: |
+          echo "Création du répertoire de déploiement..."
+          mkdir -p ~/app/api
+          echo "Répertoire créé: ~/app/api"
+          ls -la ~/app
+    
+    - name: Deploy API files
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: |
+        # Utiliser sshpass pour le transfert
+        echo "Transfert des fichiers vers le serveur..."
+        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} api.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/app/
+        
+        # Décompresser l'archive sur le serveur
+        sshpass -p "${{ secrets.PASSWORD }}" ssh -o StrictHostKeyChecking=no -p ${{ secrets.PORT }} ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd ~/app && tar -xzf api.tar.gz -C api && rm api.tar.gz"
+    
+    - name: Install dependencies and start API
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -183,22 +229,29 @@ jobs:
         timeout: 120s
         command_timeout: 120s
         script: |
-          echo "Déploiement de l'API..."
-          mkdir -p /path/to/your/app/api
-          cd /path/to/your/app/api
+          echo "Installation des dépendances et démarrage de l'API..."
+          cd ~/app/api
           
-          # Copier les fichiers de l'API
-          git pull || echo "Git pull failed, continuing with deployment"
-          npm install
+          echo "Contenu du répertoire API:"
+          ls -la
           
-          # Utiliser le chemin complet vers PM2 si nécessaire
-          if command -v pm2 &> /dev/null; then
-            pm2 restart api || pm2 start index.js --name api --port 3001
-          elif [ -f ~/node/bin/pm2 ]; then
-            ~/node/bin/pm2 restart api || ~/node/bin/pm2 start index.js --name api --port 3001
-          elif [ -f ~/node_modules/.bin/pm2 ]; then
-            ~/node_modules/.bin/pm2 restart api || ~/node_modules/.bin/pm2 start index.js --name api --port 3001
+          if [ -f "package.json" ]; then
+            echo "Installation des dépendances..."
+            npm install
+            
+            echo "Démarrage de l'API..."
+            # Utiliser le chemin complet vers PM2 si nécessaire
+            if command -v pm2 &> /dev/null; then
+              pm2 restart api || pm2 start index.js --name api
+            elif [ -f ~/node/bin/pm2 ]; then
+              ~/node/bin/pm2 restart api || ~/node/bin/pm2 start index.js --name api
+            elif [ -f ~/node_modules/.bin/pm2 ]; then
+              ~/node_modules/.bin/pm2 restart api || ~/node_modules/.bin/pm2 start index.js --name api
+            else
+              echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
+              exit 1
+            fi
           else
-            echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
+            echo "Erreur: package.json non trouvé dans le répertoire API"
             exit 1
           fi 

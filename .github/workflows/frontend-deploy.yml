@@ -174,7 +174,7 @@ jobs:
           export PATH=$PATH:~/node_modules/.bin
           ~/node/bin/pm2 -v || echo "Échec de l'installation de PM2"
     
-    - name: Prepare deployment directory
+    - name: Create deployment directory on server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -185,13 +185,10 @@ jobs:
         timeout: 60s
         command_timeout: 60s
         script: |
-          echo "Préparation du répertoire de déploiement..."
-          mkdir -p /path/to/your/app/front/build
-          rm -rf /path/to/your/app/front/build_old
-          if [ -d "/path/to/your/app/front/build" ]; then
-            mv /path/to/your/app/front/build /path/to/your/app/front/build_old
-          fi
-          mkdir -p /path/to/your/app/front/build
+          echo "Création du répertoire de déploiement..."
+          mkdir -p ~/app/front/build
+          echo "Répertoire créé: ~/app/front/build"
+          ls -la ~/app
     
     - name: Deploy frontend build
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -214,10 +211,10 @@ jobs:
         
         # Utiliser sshpass pour le transfert
         echo "Transfert des fichiers vers le serveur..."
-        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} build.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:/path/to/your/app/front/
+        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} build.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/app/front/
         
         # Décompresser l'archive sur le serveur
-        sshpass -p "${{ secrets.PASSWORD }}" ssh -o StrictHostKeyChecking=no -p ${{ secrets.PORT }} ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd /path/to/your/app/front && tar -xzf build.tar.gz -C build && rm build.tar.gz"
+        sshpass -p "${{ secrets.PASSWORD }}" ssh -o StrictHostKeyChecking=no -p ${{ secrets.PORT }} ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd ~/app/front && tar -xzf build.tar.gz -C build && rm build.tar.gz"
     
     - name: Start frontend server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -230,7 +227,10 @@ jobs:
         timeout: 60s
         command_timeout: 60s
         script: |
-          cd /path/to/your/app/front
+          cd ~/app/front
+          
+          echo "Contenu du répertoire front/build:"
+          ls -la build
           
           # Utiliser le chemin complet vers PM2 si nécessaire
           if command -v pm2 &> /dev/null; then
