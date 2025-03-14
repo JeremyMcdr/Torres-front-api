@@ -69,6 +69,54 @@ jobs:
           exit 1
         fi
     
+    - name: Verify secrets
+      run: |
+        echo "Vérification des secrets..."
+        if [ -z "${{ secrets.HOST }}" ]; then
+          echo "❌ Le secret HOST n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret HOST est défini"
+        fi
+        
+        if [ -z "${{ secrets.USERNAME }}" ]; then
+          echo "❌ Le secret USERNAME n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret USERNAME est défini"
+        fi
+        
+        if [ -z "${{ secrets.PASSWORD }}" ]; then
+          echo "❌ Le secret PASSWORD n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret PASSWORD est défini"
+        fi
+        
+        if [ -z "${{ secrets.PORT }}" ]; then
+          echo "❌ Le secret PORT n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret PORT est défini"
+        fi
+        
+        echo "Tous les secrets nécessaires sont définis"
+    
+    - name: Test SSH connection
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        timeout: 60s
+        command_timeout: 60s
+        script: |
+          echo "SSH connection successful"
+          echo "Current directory: $(pwd)"
+          echo "Server information: $(uname -a)"
+    
     - name: Deploy to production server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
@@ -77,8 +125,16 @@ jobs:
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
+        timeout: 120s
+        command_timeout: 120s
         script: |
-          cd /path/to/your/app/api
+          echo "Déploiement de l'API..."
+          cd /path/to/your/app/api || mkdir -p /path/to/your/app/api
+          
+          # Rechercher le répertoire api dans le dépôt
+          API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+          
+          # Copier les fichiers de l'API
           git pull
           npm install
           pm2 restart api || pm2 start index.js --name api --port 3001 

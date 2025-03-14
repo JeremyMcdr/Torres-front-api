@@ -71,7 +71,40 @@ jobs:
           exit 1
         fi
     
-    - name: Deploy to production server
+    - name: Verify secrets
+      run: |
+        echo "Vérification des secrets..."
+        if [ -z "${{ secrets.HOST }}" ]; then
+          echo "❌ Le secret HOST n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret HOST est défini"
+        fi
+        
+        if [ -z "${{ secrets.USERNAME }}" ]; then
+          echo "❌ Le secret USERNAME n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret USERNAME est défini"
+        fi
+        
+        if [ -z "${{ secrets.PASSWORD }}" ]; then
+          echo "❌ Le secret PASSWORD n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret PASSWORD est défini"
+        fi
+        
+        if [ -z "${{ secrets.PORT }}" ]; then
+          echo "❌ Le secret PORT n'est pas défini"
+          exit 1
+        else
+          echo "✅ Le secret PORT est défini"
+        fi
+        
+        echo "Tous les secrets nécessaires sont définis"
+    
+    - name: Test SSH connection
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -79,39 +112,58 @@ jobs:
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
+        timeout: 60s
+        command_timeout: 60s
         script: |
-          cd /path/to/your/app
-          rm -rf front/build_old
-          [ -d front/build ] && mv front/build front/build_old
-          mkdir -p front/build
+          echo "SSH connection successful"
+          echo "Current directory: $(pwd)"
+          echo "Server information: $(uname -a)"
     
-    - name: Find build directory
-      id: find-build
-      run: |
-        # Rechercher le répertoire build
-        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
-        BUILD_DIR="$FRONT_DIR/build"
-        
-        if [ -d "$BUILD_DIR" ]; then
-          echo "build_dir=$BUILD_DIR" >> $GITHUB_OUTPUT
-          echo "Build directory trouvé: $BUILD_DIR"
-        else
-          echo "Pas de répertoire build trouvé dans $FRONT_DIR"
-          exit 1
-        fi
-    
-    - name: Copy build files
+    - name: Prepare deployment directory
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/scp-action@master
+      uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
-        source: "${{ steps.find-build.outputs.build_dir }}/*"
-        target: "/path/to/your/app/front/build"
-        strip_components: 2
+        timeout: 60s
+        command_timeout: 60s
+        script: |
+          echo "Préparation du répertoire de déploiement..."
+          mkdir -p /path/to/your/app/front/build
+          rm -rf /path/to/your/app/front/build_old
+          if [ -d "/path/to/your/app/front/build" ]; then
+            mv /path/to/your/app/front/build /path/to/your/app/front/build_old
+          fi
+          mkdir -p /path/to/your/app/front/build
+    
+    - name: Deploy frontend build
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: |
+        # Rechercher le répertoire front avec un package.json
+        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
+        BUILD_DIR="$FRONT_DIR/build"
         
+        if [ ! -d "$BUILD_DIR" ]; then
+          echo "Répertoire build non trouvé: $BUILD_DIR"
+          exit 1
+        fi
+        
+        echo "Répertoire build trouvé: $BUILD_DIR"
+        echo "Contenu du répertoire build:"
+        ls -la "$BUILD_DIR"
+        
+        # Créer un fichier tar pour le transfert
+        tar -czf build.tar.gz -C "$BUILD_DIR" .
+        
+        # Utiliser sshpass pour le transfert
+        echo "Transfert des fichiers vers le serveur..."
+        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} build.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:/path/to/your/app/front/
+        
+        # Décompresser l'archive sur le serveur
+        sshpass -p "${{ secrets.PASSWORD }}" ssh -o StrictHostKeyChecking=no -p ${{ secrets.PORT }} ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd /path/to/your/app/front && tar -xzf build.tar.gz -C build && rm build.tar.gz"
+    
     - name: Start frontend server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
@@ -120,6 +172,8 @@ jobs:
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
+        timeout: 60s
+        command_timeout: 60s
         script: |
           cd /path/to/your/app/front
           pm2 delete front 2>/dev/null || true
