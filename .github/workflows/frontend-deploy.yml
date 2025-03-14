@@ -80,9 +80,20 @@ jobs:
         # Copier les fichiers de build
         COPY build/ /usr/share/nginx/html
 
+        # Créer un script de démarrage pour capturer les erreurs
+        RUN echo "#!/bin/sh" > /start.sh
+        RUN echo "echo 'Démarrage du conteneur Frontend...'" >> /start.sh
+        RUN echo "echo 'Vérification de la configuration Nginx:'" >> /start.sh
+        RUN echo "nginx -t" >> /start.sh
+        RUN echo "echo 'Contenu du répertoire web:'" >> /start.sh
+        RUN echo "ls -la /usr/share/nginx/html" >> /start.sh
+        RUN echo "echo 'Démarrage de Nginx...'" >> /start.sh
+        RUN echo "nginx -g 'daemon off;'" >> /start.sh
+        RUN chmod +x /start.sh
+
         EXPOSE 80
 
-        CMD ["nginx", "-g", "daemon off;"]
+        CMD ["/start.sh"]
         EOF
         
         # Créer la configuration nginx
@@ -253,16 +264,37 @@ jobs:
           echo "Démarrage du nouveau conteneur..."
           docker run -d --name torres-frontend -p 3000:80 --restart always --network torres-network torres-frontend:latest
           
+          # Attendre quelques secondes pour que le conteneur démarre
+          echo "Attente de 10 secondes pour le démarrage du conteneur..."
+          sleep 10
+          
           # Vérifier que le conteneur est en cours d'exécution
           echo "Vérification du conteneur:"
-          docker ps | grep torres-frontend
+          docker ps -a | grep torres-frontend
           
-          # Vérification des logs du conteneur
-          echo "Logs du conteneur Frontend:"
+          # Vérification des logs du conteneur avec différentes options
+          echo "Logs du conteneur Frontend (tail):"
+          docker logs --tail 50 torres-frontend
+          
+          echo "Logs du conteneur Frontend (depuis le début):"
           docker logs torres-frontend
           
-          # Vérification de l'état du conteneur
-          echo "État du conteneur Frontend:"
-          docker inspect torres-frontend --format='{{.State.Status}} - {{.State.Health.Status}}'
+          # Vérification détaillée de l'état du conteneur
+          echo "État détaillé du conteneur Frontend:"
+          docker inspect torres-frontend
+          
+          # Vérifier si le conteneur est réellement en cours d'exécution
+          CONTAINER_RUNNING=$(docker inspect -f '{{.State.Running}}' torres-frontend)
+          if [ "$CONTAINER_RUNNING" = "true" ]; then
+            echo "✅ Le conteneur Frontend est en cours d'exécution"
+          else
+            echo "❌ Le conteneur Frontend n'est PAS en cours d'exécution"
+            echo "Raison de l'arrêt:"
+            docker inspect -f '{{.State.Error}}' torres-frontend
+          fi
+          
+          # Vérifier si le port est correctement exposé
+          echo "Vérification des ports exposés:"
+          docker port torres-frontend || echo "Aucun port exposé"
           
           echo "Déploiement Docker du frontend terminé avec succès." 
