@@ -3,12 +3,24 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+// Récupérer les variables d'environnement avec des valeurs par défaut
+const DB_USER = process.env.DB_USER || 'sa';
+const DB_PASSWORD = process.env.DB_PASSWORD || 'Password123';
+const DB_NAME = process.env.DB_NAME || 'TorresDB';
+const DB_HOST = process.env.DB_HOST || 'localhost';
+const DB_PORT = process.env.DB_PORT || 1433;
+
+console.log('Connexion à la base de données avec les paramètres suivants:');
+console.log(`Serveur: ${DB_HOST}:${DB_PORT}`);
+console.log(`Base de données: ${DB_NAME}`);
+console.log(`Utilisateur: ${DB_USER}`);
+
 const sqlConfig = {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
-  server: process.env.DB_SERVER.split(',')[0],
-  port: parseInt(process.env.DB_SERVER.split(',')[1]),
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
+  server: DB_HOST,
+  port: parseInt(DB_PORT),
   options: {
     encrypt: true,
     trustServerCertificate: true,

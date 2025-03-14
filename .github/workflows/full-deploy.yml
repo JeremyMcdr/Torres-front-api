@@ -48,6 +48,23 @@ jobs:
           source: "docker-compose.yml"
           target: "~/torres-app"
       
+      - name: Create .env file for database credentials
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: ${{ secrets.PORT }}
+          script: |
+            # Créer un fichier .env avec les informations de connexion à la BDD
+            cat > ~/torres-app/.env << EOF
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_PORT=${{ secrets.DB_PORT }}
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            EOF
+      
       - name: Deploy with docker-compose
         uses: appleboy/ssh-action@master
         with:
@@ -71,6 +88,10 @@ jobs:
             
             # Démarrer les nouveaux conteneurs
             docker-compose up -d
+            
+            # S'assurer que les conteneurs sont connectés au réseau nginx-proxy-manager_default
+            docker network connect nginx-proxy-manager_default torres-api || true
+            docker network connect nginx-proxy-manager_default torres-front || true
             
             # Nettoyer les images non utilisées
             docker image prune -f 

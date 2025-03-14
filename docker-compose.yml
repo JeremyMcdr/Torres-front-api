@@ -9,8 +9,14 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     networks:
       - torres-network
+      - nginx-proxy-manager_default
 
   front:
     build: ./FRONT
@@ -22,7 +28,10 @@ services:
       - api
     networks:
       - torres-network
+      - nginx-proxy-manager_default
 
 networks:
   torres-network:
-    driver: bridge 
+    driver: bridge
+  nginx-proxy-manager_default:
+    external: true 

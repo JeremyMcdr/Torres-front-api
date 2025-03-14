@@ -49,11 +49,21 @@ jobs:
             docker stop torres-api || true
             docker rm torres-api || true
             
-            # Lancer le nouveau conteneur
+            # Lancer le nouveau conteneur avec les variables d'environnement pour la BDD
             docker run -d --name torres-api \
               -p 3000:3000 \
               --restart always \
+              --network nginx-proxy-manager_default \
+              -e NODE_ENV=production \
+              -e DB_HOST='${{ secrets.DB_HOST }}' \
+              -e DB_PORT='${{ secrets.DB_PORT }}' \
+              -e DB_NAME='${{ secrets.DB_NAME }}' \
+              -e DB_USER='${{ secrets.DB_USER }}' \
+              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
               ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
+            
+            # Connecter également au réseau bridge si nécessaire
+            docker network connect bridge torres-api || true
             
             # Nettoyer les images non utilisées
             docker image prune -f 
