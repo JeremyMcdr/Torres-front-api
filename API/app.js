@@ -38,7 +38,7 @@ const PORT = process.env.PORT || 3001;
 
 // Démarrer le serveur
 app.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
+  console.log(`Serveur démarré sur le port ${PORT} v1.0.0`);
 });
 
 module.exports = app; 

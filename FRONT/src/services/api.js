@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const API_URL = 'http://localhost:3001/api';
 
-// Service pour les données de chiffre d'affaires
+// Service pour les données de chiffre d'affairess
 export const caService = {
   // Récupérer le CA par pays et par année
   getCAByPaysAnnee: async (filters = {}) => {
