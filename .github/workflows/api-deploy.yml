@@ -29,45 +29,39 @@ jobs:
       with:
         node-version: '20'
     
-    - name: Install dependencies
+    - name: Find API directory
+      id: find-api
       run: |
-        # Rechercher le répertoire api avec un package.json
         API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
-        
         if [ -z "$API_DIR" ]; then
           echo "Aucun répertoire api ou API trouvé"
           exit 1
         fi
-        
+        echo "API_DIR=$API_DIR" >> $GITHUB_OUTPUT
         echo "Utilisation du répertoire: $API_DIR"
-        
-        if [ -f "$API_DIR/package.json" ]; then
-          cd "$API_DIR"
-          npm install
-        else
-          echo "Pas de package.json trouvé dans $API_DIR"
-          exit 1
-        fi
     
-    - name: Run tests
+    - name: Create Dockerfile for API
       run: |
-        # Rechercher le répertoire api avec un package.json
-        API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+        API_DIR="${{ steps.find-api.outputs.API_DIR }}"
         
-        if [ -z "$API_DIR" ]; then
-          echo "Aucun répertoire api ou API trouvé"
-          exit 1
-        fi
+        # Créer un Dockerfile pour l'API
+        cat > $API_DIR/Dockerfile << 'EOF'
+        FROM node:20-alpine
+
+        WORKDIR /app
+
+        COPY package*.json ./
+        RUN npm install
+
+        COPY . .
+
+        EXPOSE 3001
+
+        CMD ["node", "index.js"]
+        EOF
         
-        echo "Utilisation du répertoire: $API_DIR"
-        
-        if [ -f "$API_DIR/package.json" ]; then
-          cd "$API_DIR"
-          npm test || true
-        else
-          echo "Pas de package.json trouvé dans $API_DIR"
-          exit 1
-        fi
+        echo "Dockerfile créé:"
+        cat $API_DIR/Dockerfile
     
     - name: Verify secrets
       run: |
@@ -116,109 +110,28 @@ jobs:
           echo "SSH connection successful"
           echo "Current directory: $(pwd)"
           echo "Server information: $(uname -a)"
-    
-    - name: Check and install PM2 on server
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        timeout: 120s
-        command_timeout: 120s
-        script: |
-          echo "Vérification des commandes disponibles..."
-          echo "Node.js: $(command -v node || echo 'Non installé')"
-          echo "npm: $(command -v npm || echo 'Non installé')"
-          echo "PM2: $(command -v pm2 || echo 'Non installé')"
-          
-          # Vérifier si PM2 est déjà installé
-          if command -v pm2 &> /dev/null; then
-            echo "PM2 est déjà installé."
-            pm2 -v
-            exit 0
-          fi
-          
-          # Vérifier si npm est disponible
-          if command -v npm &> /dev/null; then
-            echo "npm est disponible, installation de PM2..."
-            npm install -g pm2 || sudo npm install -g pm2
-            exit 0
-          fi
-          
-          echo "Installation manuelle de PM2..."
-          # Créer un répertoire temporaire pour l'installation
-          mkdir -p ~/pm2-install
-          cd ~/pm2-install
-          
-          # Télécharger et installer Node.js manuellement si nécessaire
-          if ! command -v node &> /dev/null; then
-            echo "Téléchargement de Node.js..."
-            curl -o node.tar.gz https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.gz
-            mkdir -p ~/node
-            tar -xzf node.tar.gz -C ~/node --strip-components=1
-            export PATH=$PATH:~/node/bin
-            echo 'export PATH=$PATH:~/node/bin' >> ~/.bashrc
-          fi
-          
-          # Installer PM2 localement
-          echo "Installation de PM2 localement..."
-          export PATH=$PATH:~/node/bin
-          ~/node/bin/npm install pm2 -g
-          
-          # Vérifier l'installation
-          echo "Vérification de l'installation de PM2..."
-          export PATH=$PATH:~/node_modules/.bin
-          ~/node/bin/pm2 -v || echo "Échec de l'installation de PM2"
+          echo "Docker version: $(docker --version || echo 'Docker non installé')"
     
     - name: Prepare API package for deployment
       run: |
-        # Rechercher le répertoire api avec un package.json
-        API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+        API_DIR="${{ steps.find-api.outputs.API_DIR }}"
         
-        if [ -z "$API_DIR" ]; then
-          echo "Aucun répertoire api ou API trouvé"
-          exit 1
-        fi
-        
-        echo "Utilisation du répertoire: $API_DIR"
-        echo "Contenu du répertoire API:"
-        ls -la "$API_DIR"
-        
-        # Créer un fichier tar pour le transfert
+        # Créer une archive contenant le code source et le Dockerfile
         tar -czf api.tar.gz -C "$API_DIR" .
         
         echo "Archive API créée:"
         ls -la api.tar.gz
     
-    - name: Create deployment directory on server
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        timeout: 60s
-        command_timeout: 60s
-        script: |
-          echo "Création du répertoire de déploiement..."
-          mkdir -p ~/app/api
-          echo "Répertoire créé: ~/app/api"
-          ls -la ~/app
-    
-    - name: Deploy API files
+    - name: Transfer API files to server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       run: |
         # Utiliser sshpass pour le transfert
         echo "Transfert des fichiers vers le serveur..."
-        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} api.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/app/
+        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} api.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/docker-deploy/
         
-        # Décompresser l'archive sur le serveur
-        sshpass -p "${{ secrets.PASSWORD }}" ssh -o StrictHostKeyChecking=no -p ${{ secrets.PORT }} ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd ~/app && tar -xzf api.tar.gz -C api && rm api.tar.gz"
+        echo "Fichiers transférés avec succès."
     
-    - name: Install dependencies and start API
+    - name: Build and run Docker container
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -226,32 +139,45 @@ jobs:
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
-        timeout: 120s
-        command_timeout: 120s
+        timeout: 180s
+        command_timeout: 180s
         script: |
-          echo "Installation des dépendances et démarrage de l'API..."
-          cd ~/app/api
+          echo "Préparation du déploiement Docker pour l'API..."
+          
+          # Créer le répertoire de déploiement s'il n'existe pas
+          mkdir -p ~/docker-deploy/api
+          
+          # Extraire l'archive
+          cd ~/docker-deploy
+          tar -xzf api.tar.gz -C api
+          rm api.tar.gz
+          
+          cd api
           
           echo "Contenu du répertoire API:"
           ls -la
           
-          if [ -f "package.json" ]; then
-            echo "Installation des dépendances..."
-            npm install
-            
-            echo "Démarrage de l'API..."
-            # Utiliser le chemin complet vers PM2 si nécessaire
-            if command -v pm2 &> /dev/null; then
-              pm2 restart api || pm2 start index.js --name api
-            elif [ -f ~/node/bin/pm2 ]; then
-              ~/node/bin/pm2 restart api || ~/node/bin/pm2 start index.js --name api
-            elif [ -f ~/node_modules/.bin/pm2 ]; then
-              ~/node_modules/.bin/pm2 restart api || ~/node_modules/.bin/pm2 start index.js --name api
-            else
-              echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
-              exit 1
-            fi
-          else
-            echo "Erreur: package.json non trouvé dans le répertoire API"
+          # Vérifier que le Dockerfile existe
+          if [ ! -f "Dockerfile" ]; then
+            echo "Erreur: Dockerfile non trouvé"
             exit 1
-          fi 
+          fi
+          
+          # Construire l'image Docker
+          echo "Construction de l'image Docker..."
+          docker build -t torres-api:latest .
+          
+          # Arrêter et supprimer le conteneur existant s'il existe
+          echo "Arrêt du conteneur existant..."
+          docker stop torres-api 2>/dev/null || true
+          docker rm torres-api 2>/dev/null || true
+          
+          # Démarrer le nouveau conteneur
+          echo "Démarrage du nouveau conteneur..."
+          docker run -d --name torres-api -p 3001:3001 --restart always torres-api:latest
+          
+          # Vérifier que le conteneur est en cours d'exécution
+          echo "Vérification du conteneur:"
+          docker ps | grep torres-api
+          
+          echo "Déploiement Docker de l'API terminé avec succès." 

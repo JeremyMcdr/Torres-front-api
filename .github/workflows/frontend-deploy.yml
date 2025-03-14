@@ -29,17 +29,20 @@ jobs:
       with:
         node-version: '20'
     
-    - name: Install dependencies
+    - name: Find frontend directory
+      id: find-front
       run: |
-        # Rechercher le répertoire front avec un package.json
         FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
-        
         if [ -z "$FRONT_DIR" ]; then
           echo "Aucun répertoire front ou FRONT trouvé"
           exit 1
         fi
-        
+        echo "FRONT_DIR=$FRONT_DIR" >> $GITHUB_OUTPUT
         echo "Utilisation du répertoire: $FRONT_DIR"
+    
+    - name: Install dependencies
+      run: |
+        FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
         
         if [ -f "$FRONT_DIR/package.json" ]; then
           cd "$FRONT_DIR"
@@ -53,15 +56,7 @@ jobs:
       env:
         CI: "false"  # Désactiver le traitement des avertissements comme erreurs
       run: |
-        # Rechercher le répertoire front avec un package.json
-        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
-        
-        if [ -z "$FRONT_DIR" ]; then
-          echo "Aucun répertoire front ou FRONT trouvé"
-          exit 1
-        fi
-        
-        echo "Utilisation du répertoire: $FRONT_DIR"
+        FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
         
         if [ -f "$FRONT_DIR/package.json" ]; then
           cd "$FRONT_DIR"
@@ -70,6 +65,55 @@ jobs:
           echo "Pas de package.json trouvé dans $FRONT_DIR"
           exit 1
         fi
+    
+    - name: Create Dockerfile for frontend
+      run: |
+        FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
+        
+        # Créer un Dockerfile pour le frontend
+        cat > $FRONT_DIR/Dockerfile << 'EOF'
+        FROM nginx:alpine
+
+        # Copier la configuration nginx personnalisée
+        COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+        # Copier les fichiers de build
+        COPY build/ /usr/share/nginx/html
+
+        EXPOSE 80
+
+        CMD ["nginx", "-g", "daemon off;"]
+        EOF
+        
+        # Créer la configuration nginx
+        cat > $FRONT_DIR/nginx.conf << 'EOF'
+        server {
+            listen 80;
+            server_name localhost;
+
+            location / {
+                root /usr/share/nginx/html;
+                index index.html index.htm;
+                try_files $uri $uri/ /index.html;
+            }
+
+            # Rediriger les requêtes API vers le backend
+            location /api {
+                proxy_pass http://torres-api:3001;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_cache_bypass $http_upgrade;
+            }
+        }
+        EOF
+        
+        echo "Dockerfile créé:"
+        cat $FRONT_DIR/Dockerfile
+        
+        echo "Configuration nginx créée:"
+        cat $FRONT_DIR/nginx.conf
     
     - name: Verify secrets
       run: |
@@ -118,117 +162,30 @@ jobs:
           echo "SSH connection successful"
           echo "Current directory: $(pwd)"
           echo "Server information: $(uname -a)"
+          echo "Docker version: $(docker --version || echo 'Docker non installé')"
     
-    - name: Check and install PM2 on server
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        timeout: 120s
-        command_timeout: 120s
-        script: |
-          echo "Vérification des commandes disponibles..."
-          echo "Node.js: $(command -v node || echo 'Non installé')"
-          echo "npm: $(command -v npm || echo 'Non installé')"
-          echo "PM2: $(command -v pm2 || echo 'Non installé')"
-          
-          # Vérifier si PM2 est déjà installé
-          if command -v pm2 &> /dev/null; then
-            echo "PM2 est déjà installé."
-            pm2 -v
-            exit 0
-          fi
-          
-          # Vérifier si npm est disponible
-          if command -v npm &> /dev/null; then
-            echo "npm est disponible, installation de PM2..."
-            npm install -g pm2 || sudo npm install -g pm2
-            exit 0
-          fi
-          
-          echo "Installation manuelle de PM2..."
-          # Créer un répertoire temporaire pour l'installation
-          mkdir -p ~/pm2-install
-          cd ~/pm2-install
-          
-          # Télécharger et installer Node.js manuellement si nécessaire
-          if ! command -v node &> /dev/null; then
-            echo "Téléchargement de Node.js..."
-            curl -o node.tar.gz https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.gz
-            mkdir -p ~/node
-            tar -xzf node.tar.gz -C ~/node --strip-components=1
-            export PATH=$PATH:~/node/bin
-            echo 'export PATH=$PATH:~/node/bin' >> ~/.bashrc
-          fi
-          
-          # Installer PM2 localement
-          echo "Installation de PM2 localement..."
-          export PATH=$PATH:~/node/bin
-          ~/node/bin/npm install pm2 -g
-          
-          # Vérifier l'installation
-          echo "Vérification de l'installation de PM2..."
-          export PATH=$PATH:~/node_modules/.bin
-          ~/node/bin/pm2 -v || echo "Échec de l'installation de PM2"
-    
-    - name: Prepare frontend build
+    - name: Prepare frontend package for deployment
       run: |
-        # Rechercher le répertoire front avec un package.json
-        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
-        BUILD_DIR="$FRONT_DIR/build"
+        FRONT_DIR="${{ steps.find-front.outputs.FRONT_DIR }}"
         
-        if [ ! -d "$BUILD_DIR" ]; then
-          echo "Répertoire build non trouvé: $BUILD_DIR"
-          exit 1
-        fi
+        # Créer une archive contenant le build, le Dockerfile et la configuration nginx
+        cd $FRONT_DIR
+        tar -czf ../../frontend.tar.gz build Dockerfile nginx.conf
+        cd ../..
         
-        echo "Répertoire build trouvé: $BUILD_DIR"
-        echo "Contenu du répertoire build:"
-        ls -la "$BUILD_DIR"
-        
-        # Créer un fichier tar pour le transfert
-        tar -czf build.tar.gz -C "$BUILD_DIR" .
-        
-        echo "Archive build créée:"
-        ls -la build.tar.gz
+        echo "Archive frontend créée:"
+        ls -la frontend.tar.gz
     
-    - name: Deploy and start frontend
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        timeout: 180s
-        command_timeout: 180s
-        script: |
-          echo "Préparation du déploiement du frontend..."
-          
-          # Créer les répertoires nécessaires
-          mkdir -p ~/app/front/build
-          
-          echo "Répertoires créés:"
-          ls -la ~/app
-          
-          # Nettoyer le répertoire de build existant
-          rm -rf ~/app/front/build/*
-          
-          echo "Attente du transfert des fichiers..."
-    
-    - name: Transfer frontend build
+    - name: Transfer frontend files to server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       run: |
         # Utiliser sshpass pour le transfert
         echo "Transfert des fichiers vers le serveur..."
-        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} build.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/app/front/
+        sshpass -p "${{ secrets.PASSWORD }}" scp -o StrictHostKeyChecking=no -P ${{ secrets.PORT }} frontend.tar.gz ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/docker-deploy/
         
         echo "Fichiers transférés avec succès."
     
-    - name: Extract and start frontend
+    - name: Build and run Docker container
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/ssh-action@master
       with:
@@ -239,45 +196,48 @@ jobs:
         timeout: 180s
         command_timeout: 180s
         script: |
-          echo "Extraction et démarrage du frontend..."
+          echo "Préparation du déploiement Docker pour le frontend..."
           
-          # Vérifier si l'archive existe
-          if [ -f ~/app/front/build.tar.gz ]; then
-            echo "Archive trouvée, extraction en cours..."
-            cd ~/app/front
-            tar -xzf build.tar.gz -C build
-            rm build.tar.gz
-            
-            echo "Contenu du répertoire build:"
-            ls -la build
-            
-            # Démarrer le serveur frontend avec PM2
-            echo "Démarrage du serveur frontend..."
-            
-            # Trouver PM2
-            PM2_CMD=""
-            if command -v pm2 &> /dev/null; then
-              PM2_CMD="pm2"
-            elif [ -f ~/node/bin/pm2 ]; then
-              PM2_CMD="~/node/bin/pm2"
-            elif [ -f ~/node_modules/.bin/pm2 ]; then
-              PM2_CMD="~/node_modules/.bin/pm2"
-            else
-              echo "PM2 n'est pas disponible. Impossible de démarrer l'application."
-              exit 1
-            fi
-            
-            # Arrêter l'instance existante si elle existe
-            $PM2_CMD delete front 2>/dev/null || true
-            
-            # Démarrer le serveur
-            echo "Démarrage avec $PM2_CMD..."
-            $PM2_CMD serve build 3000 --name front --spa
-            
-            echo "Frontend démarré avec succès."
-            $PM2_CMD list
-          else
-            echo "Erreur: Archive build.tar.gz non trouvée dans ~/app/front/"
-            ls -la ~/app/front/
+          # Créer le répertoire de déploiement s'il n'existe pas
+          mkdir -p ~/docker-deploy/frontend
+          
+          # Extraire l'archive
+          cd ~/docker-deploy
+          tar -xzf frontend.tar.gz -C frontend
+          rm frontend.tar.gz
+          
+          cd frontend
+          
+          echo "Contenu du répertoire frontend:"
+          ls -la
+          
+          # Vérifier que le Dockerfile existe
+          if [ ! -f "Dockerfile" ]; then
+            echo "Erreur: Dockerfile non trouvé"
             exit 1
-          fi 
+          fi
+          
+          # Construire l'image Docker
+          echo "Construction de l'image Docker..."
+          docker build -t torres-frontend:latest .
+          
+          # Arrêter et supprimer le conteneur existant s'il existe
+          echo "Arrêt du conteneur existant..."
+          docker stop torres-frontend 2>/dev/null || true
+          docker rm torres-frontend 2>/dev/null || true
+          
+          # Créer un réseau Docker s'il n'existe pas déjà
+          docker network create torres-network 2>/dev/null || true
+          
+          # Connecter le conteneur API au réseau s'il existe
+          docker network connect torres-network torres-api 2>/dev/null || true
+          
+          # Démarrer le nouveau conteneur
+          echo "Démarrage du nouveau conteneur..."
+          docker run -d --name torres-frontend -p 3000:80 --restart always --network torres-network torres-frontend:latest
+          
+          # Vérifier que le conteneur est en cours d'exécution
+          echo "Vérification du conteneur:"
+          docker ps | grep torres-frontend
+          
+          echo "Déploiement Docker du frontend terminé avec succès." 
