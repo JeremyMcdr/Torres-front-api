@@ -8,11 +8,11 @@ param (
     [Parameter(Mandatory=$true)]
     [string]$Username,
     
-    [Parameter(Mandatory=$false)]
-    [string]$KeyFile,
+    [Parameter(Mandatory=$true)]
+    [string]$Password,
     
     [Parameter(Mandatory=$false)]
-    [string]$Password,
+    [string]$KeyFile,
     
     [Parameter(Mandatory=$false)]
     [int]$Port = 22,
@@ -28,14 +28,39 @@ Write-Host "Chemin distant: $RemotePath" -ForegroundColor Cyan
 
 # Vérifier si sshpass est installé pour l'authentification par mot de passe
 $useSshpass = $false
-if (-not [string]::IsNullOrEmpty($Password)) {
+try {
+    $sshpassVersion = sshpass -V
+    $useSshpass = $true
+    Write-Host "Utilisation de sshpass pour l'authentification par mot de passe" -ForegroundColor Yellow
+}
+catch {
+    Write-Host "sshpass n'est pas installé. Installation en cours..." -ForegroundColor Yellow
+    
+    # Détection du système d'exploitation
+    if ($IsLinux) {
+        sudo apt-get install -y sshpass
+    }
+    elseif ($IsMacOS) {
+        brew install hudochenkov/sshpass/sshpass
+    }
+    else {
+        Write-Host "Impossible d'installer sshpass automatiquement sur Windows." -ForegroundColor Red
+        Write-Host "Veuillez l'installer manuellement ou utiliser une clé SSH." -ForegroundColor Red
+        
+        if ([string]::IsNullOrEmpty($KeyFile)) {
+            Write-Host "Veuillez spécifier un fichier de clé SSH avec -KeyFile" -ForegroundColor Red
+            exit 1
+        }
+    }
+    
+    # Vérifier si l'installation a réussi
     try {
         $sshpassVersion = sshpass -V
         $useSshpass = $true
-        Write-Host "Utilisation de sshpass pour l'authentification par mot de passe" -ForegroundColor Yellow
+        Write-Host "sshpass installé avec succès" -ForegroundColor Green
     }
     catch {
-        Write-Host "sshpass n'est pas installé. L'authentification par mot de passe ne sera pas disponible." -ForegroundColor Red
+        Write-Host "L'installation de sshpass a échoué" -ForegroundColor Red
         if ([string]::IsNullOrEmpty($KeyFile)) {
             Write-Host "Veuillez spécifier un fichier de clé SSH avec -KeyFile" -ForegroundColor Red
             exit 1
@@ -45,7 +70,7 @@ if (-not [string]::IsNullOrEmpty($Password)) {
 
 # Construire le frontend
 Write-Host "`nConstruction du frontend..." -ForegroundColor Green
-Set-Location -Path ".\FRONT"
+Set-Location -Path ".\front"
 npm install
 npm run build
 Set-Location -Path ".."
@@ -73,26 +98,26 @@ if ($useSshpass) {
 
 # Créer le répertoire distant si nécessaire
 Write-Host "`nCréation des répertoires distants..." -ForegroundColor Green
-Invoke-Expression "$sshCommand 'mkdir -p $RemotePath/API $RemotePath/FRONT/build'"
+Invoke-Expression "$sshCommand 'mkdir -p $RemotePath/api $RemotePath/front/build'"
 
 # Déployer l'API
 Write-Host "`nDéploiement de l'API..." -ForegroundColor Green
-Invoke-Expression "$scpCommand -r API/* $Username@$Host`:$RemotePath/API/"
+Invoke-Expression "$scpCommand -r api/* $Username@$Host`:$RemotePath/api/"
 
 # Déployer le frontend
 Write-Host "`nDéploiement du frontend..." -ForegroundColor Green
-Invoke-Expression "$scpCommand -r FRONT/build/* $Username@$Host`:$RemotePath/FRONT/build/"
+Invoke-Expression "$scpCommand -r front/build/* $Username@$Host`:$RemotePath/front/build/"
 
 # Installer les dépendances et démarrer les services
 Write-Host "`nInstallation des dépendances et démarrage des services..." -ForegroundColor Green
 $remoteCommands = @"
-cd $RemotePath/API
+cd $RemotePath/api
 npm install
-pm2 delete api 2>/dev/null
-pm2 start index.js --name api
+pm2 delete api 2>/dev/null || true
+pm2 start index.js --name api --port 3001
 
-cd $RemotePath/FRONT
-pm2 delete front 2>/dev/null
+cd $RemotePath/front
+pm2 delete front 2>/dev/null || true
 pm2 serve build 3000 --name front --spa
 
 pm2 save

@@ -4,11 +4,11 @@ on:
   push:
     branches: [ main, master ]
     paths:
-      - 'FRONT/**'
+      - 'front/**'
   pull_request:
     branches: [ main, master ]
     paths:
-      - 'FRONT/**'
+      - 'front/**'
   workflow_dispatch:
 
 jobs:
@@ -23,16 +23,16 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
-        cache-dependency-path: FRONT/package-lock.json
+        cache-dependency-path: front/package-lock.json
     
     - name: Install dependencies
       run: |
-        cd FRONT
+        cd front
         npm ci
     
     - name: Build
       run: |
-        cd FRONT
+        cd front
         npm run build
     
     - name: Deploy to production server
@@ -41,13 +41,13 @@ jobs:
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_KEY }}
+        password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
         script: |
           cd /path/to/your/app
-          rm -rf FRONT/build_old
-          [ -d FRONT/build ] && mv FRONT/build FRONT/build_old
-          mkdir -p FRONT/build
+          rm -rf front/build_old
+          [ -d front/build ] && mv front/build front/build_old
+          mkdir -p front/build
     
     - name: Copy build files
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -55,8 +55,21 @@ jobs:
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_KEY }}
+        password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
-        source: "FRONT/build/*"
+        source: "front/build/*"
         target: "/path/to/your/app"
-        strip_components: 1 
+        strip_components: 1
+        
+    - name: Start frontend server
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        script: |
+          cd /path/to/your/app/front
+          pm2 delete front 2>/dev/null || true
+          pm2 serve build 3000 --name front --spa 

@@ -25,21 +25,21 @@ catch {
 
 # Déployer l'API
 Write-Host "`nDéploiement de l'API..." -ForegroundColor Green
-Set-Location -Path ".\API"
+Set-Location -Path ".\api"
 
 Write-Host "Installation des dépendances de l'API..." -ForegroundColor Cyan
 npm install
 
 Write-Host "Démarrage de l'API avec PM2..." -ForegroundColor Cyan
-pm2 delete api 2>$null
-pm2 start index.js --name api
+pm2 delete api 2>$null || true
+pm2 start index.js --name api --port 3001
 
 # Retour au répertoire racine
 Set-Location -Path ".."
 
 # Déployer le frontend
 Write-Host "`nDéploiement du frontend..." -ForegroundColor Green
-Set-Location -Path ".\FRONT"
+Set-Location -Path ".\front"
 
 Write-Host "Installation des dépendances du frontend..." -ForegroundColor Cyan
 npm install
@@ -48,7 +48,7 @@ Write-Host "Construction du frontend..." -ForegroundColor Cyan
 npm run build
 
 Write-Host "Démarrage du frontend avec PM2..." -ForegroundColor Cyan
-pm2 delete front 2>$null
+pm2 delete front 2>$null || true
 pm2 serve build 3000 --name front --spa
 
 # Retour au répertoire racine

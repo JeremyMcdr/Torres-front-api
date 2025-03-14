@@ -6,8 +6,8 @@ Dashboard d'analyse de données commerciales basé sur une base de données en �
 
 Le projet est divisé en deux parties principales :
 
-- **API** : Backend Node.js avec Express qui se connecte à la base de données SQL Server
-- **FRONT** : Frontend React qui affiche les données sous forme de tableaux de bord
+- **api** : Backend Node.js avec Express qui se connecte à la base de données SQL Server
+- **front** : Frontend React qui affiche les données sous forme de tableaux de bord
 
 ## Prérequis
 
@@ -21,7 +21,7 @@ Le projet est divisé en deux parties principales :
 ### API
 
 ```bash
-cd API
+cd api
 npm install
 npm start
 ```
@@ -31,7 +31,7 @@ L'API sera accessible à l'adresse http://localhost:3001
 ### Frontend
 
 ```bash
-cd FRONT
+cd front
 npm install
 npm start
 ```
@@ -58,13 +58,13 @@ Ce script va :
 Un script PowerShell est fourni pour déployer l'application sur un serveur distant :
 
 ```powershell
-./deploy-remote.ps1 -Host "votre-serveur.com" -Username "utilisateur" -KeyFile "chemin/vers/cle.pem" -RemotePath "/var/www/torres"
+./deploy-remote.ps1 -Host "votre-serveur.com" -Username "utilisateur" -Password "votre-mot-de-passe" -RemotePath "/var/www/torres"
 ```
 
-Ou avec un mot de passe (nécessite sshpass) :
+Ou avec une clé SSH (optionnel) :
 
 ```powershell
-./deploy-remote.ps1 -Host "votre-serveur.com" -Username "utilisateur" -Password "votre-mot-de-passe" -RemotePath "/var/www/torres"
+./deploy-remote.ps1 -Host "votre-serveur.com" -Username "utilisateur" -Password "votre-mot-de-passe" -KeyFile "chemin/vers/cle.pem" -RemotePath "/var/www/torres"
 ```
 
 ### Déploiement automatique avec GitHub Actions
@@ -74,7 +74,7 @@ Le projet est configuré pour utiliser GitHub Actions pour le déploiement autom
 1. Configurez les secrets suivants dans votre dépôt GitHub :
    - `HOST` : Adresse du serveur
    - `USERNAME` : Nom d'utilisateur SSH
-   - `SSH_KEY` : Clé SSH privée
+   - `PASSWORD` : Mot de passe pour l'authentification
    - `PORT` : Port SSH (généralement 22)
 
 2. Poussez vos modifications sur la branche `main` ou `master`
@@ -85,7 +85,7 @@ Le projet est configuré pour utiliser GitHub Actions pour le déploiement autom
 
 ### Variables d'environnement de l'API
 
-Créez un fichier `.env` dans le répertoire `API` avec les variables suivantes :
+Créez un fichier `.env` dans le répertoire `api` avec les variables suivantes :
 
 ```
 DB_SERVER=159.203.139.99,1433
@@ -97,7 +97,7 @@ PORT=3001
 
 ### Configuration du frontend
 
-Le frontend est configuré pour se connecter à l'API à l'adresse `http://localhost:3001/api`. Si vous souhaitez modifier cette URL, modifiez la variable `API_URL` dans le fichier `FRONT/src/services/api.js`.
+Le frontend est configuré pour se connecter à l'API à l'adresse `http://localhost:3001/api`. Si vous souhaitez modifier cette URL, modifiez la variable `API_URL` dans le fichier `front/src/services/api.js`.
 
 ## Fonctionnalités
 
