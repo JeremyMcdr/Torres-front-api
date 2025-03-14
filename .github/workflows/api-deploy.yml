@@ -19,8 +19,10 @@ jobs:
         echo "Current directory: $(pwd)"
         echo "Directory contents:"
         ls -la
-        echo "Root directory contents:"
-        ls -la /home/runner/work
+        echo "Searching for api directories:"
+        find . -type d -name "api" -o -name "API" | sort
+        echo "Searching for package.json files:"
+        find . -name "package.json" | sort
     
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -29,29 +31,41 @@ jobs:
     
     - name: Install dependencies
       run: |
-        # Vérifier si le répertoire api existe
-        if [ -d "api" ]; then
-          cd api
-          npm install
-        elif [ -d "API" ]; then
-          cd API
+        # Rechercher le répertoire api avec un package.json
+        API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+        
+        if [ -z "$API_DIR" ]; then
+          echo "Aucun répertoire api ou API trouvé"
+          exit 1
+        fi
+        
+        echo "Utilisation du répertoire: $API_DIR"
+        
+        if [ -f "$API_DIR/package.json" ]; then
+          cd "$API_DIR"
           npm install
         else
-          echo "Le répertoire api ou API n'existe pas"
+          echo "Pas de package.json trouvé dans $API_DIR"
           exit 1
         fi
     
     - name: Run tests
       run: |
-        # Vérifier si le répertoire api existe
-        if [ -d "api" ]; then
-          cd api
-          npm test || true
-        elif [ -d "API" ]; then
-          cd API
+        # Rechercher le répertoire api avec un package.json
+        API_DIR=$(find . -type d -name "api" -o -name "API" | sort | head -n 1)
+        
+        if [ -z "$API_DIR" ]; then
+          echo "Aucun répertoire api ou API trouvé"
+          exit 1
+        fi
+        
+        echo "Utilisation du répertoire: $API_DIR"
+        
+        if [ -f "$API_DIR/package.json" ]; then
+          cd "$API_DIR"
           npm test || true
         else
-          echo "Le répertoire api ou API n'existe pas"
+          echo "Pas de package.json trouvé dans $API_DIR"
           exit 1
         fi
     

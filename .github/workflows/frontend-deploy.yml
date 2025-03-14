@@ -19,8 +19,10 @@ jobs:
         echo "Current directory: $(pwd)"
         echo "Directory contents:"
         ls -la
-        echo "Root directory contents:"
-        ls -la /home/runner/work
+        echo "Searching for front directories:"
+        find . -type d -name "front" -o -name "FRONT" | sort
+        echo "Searching for package.json files:"
+        find . -name "package.json" | sort
     
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -29,29 +31,41 @@ jobs:
     
     - name: Install dependencies
       run: |
-        # Vérifier si le répertoire front existe
-        if [ -d "front" ]; then
-          cd front
-          npm install
-        elif [ -d "FRONT" ]; then
-          cd FRONT
+        # Rechercher le répertoire front avec un package.json
+        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
+        
+        if [ -z "$FRONT_DIR" ]; then
+          echo "Aucun répertoire front ou FRONT trouvé"
+          exit 1
+        fi
+        
+        echo "Utilisation du répertoire: $FRONT_DIR"
+        
+        if [ -f "$FRONT_DIR/package.json" ]; then
+          cd "$FRONT_DIR"
           npm install
         else
-          echo "Le répertoire front ou FRONT n'existe pas"
+          echo "Pas de package.json trouvé dans $FRONT_DIR"
           exit 1
         fi
     
     - name: Build
       run: |
-        # Vérifier si le répertoire front existe
-        if [ -d "front" ]; then
-          cd front
-          npm run build
-        elif [ -d "FRONT" ]; then
-          cd FRONT
+        # Rechercher le répertoire front avec un package.json
+        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
+        
+        if [ -z "$FRONT_DIR" ]; then
+          echo "Aucun répertoire front ou FRONT trouvé"
+          exit 1
+        fi
+        
+        echo "Utilisation du répertoire: $FRONT_DIR"
+        
+        if [ -f "$FRONT_DIR/package.json" ]; then
+          cd "$FRONT_DIR"
           npm run build
         else
-          echo "Le répertoire front ou FRONT n'existe pas"
+          echo "Pas de package.json trouvé dans $FRONT_DIR"
           exit 1
         fi
     
@@ -69,6 +83,21 @@ jobs:
           [ -d front/build ] && mv front/build front/build_old
           mkdir -p front/build
     
+    - name: Find build directory
+      id: find-build
+      run: |
+        # Rechercher le répertoire build
+        FRONT_DIR=$(find . -type d -name "front" -o -name "FRONT" | sort | head -n 1)
+        BUILD_DIR="$FRONT_DIR/build"
+        
+        if [ -d "$BUILD_DIR" ]; then
+          echo "build_dir=$BUILD_DIR" >> $GITHUB_OUTPUT
+          echo "Build directory trouvé: $BUILD_DIR"
+        else
+          echo "Pas de répertoire build trouvé dans $FRONT_DIR"
+          exit 1
+        fi
+    
     - name: Copy build files
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: appleboy/scp-action@master
@@ -77,9 +106,9 @@ jobs:
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: ${{ secrets.PORT }}
-        source: "front/build/* || FRONT/build/*"
-        target: "/path/to/your/app"
-        strip_components: 1
+        source: "${{ steps.find-build.outputs.build_dir }}/*"
+        target: "/path/to/your/app/front/build"
+        strip_components: 2
         
     - name: Start frontend server
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
