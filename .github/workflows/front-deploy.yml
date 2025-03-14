@@ -30,6 +30,7 @@ jobs:
           context: ./FRONT
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest
+          no-cache: true
       
       - name: Deploy to server
         uses: appleboy/ssh-action@master
