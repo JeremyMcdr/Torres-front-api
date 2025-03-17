@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'https://torres.api.macadre.fr';
+const API_URL = 'https://torres.api.macadre.fr/api';
 
 // Service pour les données de chiffre d'affairess
 export const caService = {
