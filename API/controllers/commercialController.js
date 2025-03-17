@@ -26,6 +26,18 @@ const commercialController = {
     }
   },
   
+  // Récupérer les temps de conversion par commercial
+  async getTempsConversion(req, res) {
+    try {
+      const filters = req.query;
+      const data = await commercialModel.getTempsConversion(filters);
+      res.json(data);
+    } catch (error) {
+      console.error('Erreur lors de la récupération des temps de conversion par commercial:', error);
+      res.status(500).json({ error: 'Erreur lors de la récupération des données' });
+    }
+  },
+  
   // Récupérer les commerciaux disponibles
   async getAvailableCommerciaux(req, res) {
     try {

@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_URL = 'https://torres.api.macadre.fr/api';
+// Utiliser l'API locale en développement et l'API en ligne en production
+const isDevEnvironment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_URL = isDevEnvironment ? 'http://localhost:3001/api' : 'https://torres.api.macadre.fr/api';
 
 // Service pour les données de chiffre d'affairess
 export const caService = {
@@ -80,6 +82,17 @@ export const commercialService = {
       return response.data;
     } catch (error) {
       console.error('Erreur lors de la récupération du taux de réussite des commerciaux:', error);
+      throw error;
+    }
+  },
+  
+  // Récupérer les temps de conversion par commercial
+  getTempsConversion: async (filters = {}) => {
+    try {
+      const response = await axios.get(`${API_URL}/commerciaux/temps-conversion`, { params: filters });
+      return response.data;
+    } catch (error) {
+      console.error('Erreur lors de la récupération des temps de conversion par commercial:', error);
       throw error;
     }
   },

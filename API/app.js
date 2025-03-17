@@ -5,8 +5,16 @@ const bodyParser = require('body-parser');
 // Créer l'application Express
 const app = express();
 
+// Configuration CORS détaillée pour permettre les requêtes depuis le frontend local
+const corsOptions = {
+  origin: ['http://localhost:3000', 'https://torres.macadre.fr'],
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+
 // Configurer les middlewares
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 

@@ -36,7 +36,8 @@ const Objectifs = () => {
       try {
         // Récupérer les groupes de vendeurs
         const groupesVendeursData = await commercialService.getAvailableGroupesVendeurs();
-        setGroupesVendeurs(groupesVendeursData.map(item => item.Groupe_Vendeur));
+        // Stocker les données complètes des groupes de vendeurs, pas juste les identifiants
+        setGroupesVendeurs(groupesVendeursData);
         
         // Récupérer les objectifs pour obtenir les années disponibles
         const objectifsData = await objectifService.getObjectifsCommerciaux({});
@@ -145,7 +146,8 @@ const Objectifs = () => {
       return evolutionData.map(item => ({
         Annee: item.Annee.toString(),
         Objectif: item.Objectif_Commercial,
-        CA: item.CA
+        CA: item.CA,
+        commercial: item.Nom_Commercial || `Commercial ${item.Groupe_Vendeur}`
       }));
     } else {
       // Pour tous les groupes de vendeurs
@@ -235,7 +237,9 @@ const Objectifs = () => {
           <select id="groupe-vendeur" value={selectedGroupeVendeur} onChange={handleGroupeVendeurChange}>
             <option value="">Tous les groupes</option>
             {groupesVendeurs.map(groupe => (
-              <option key={groupe} value={groupe}>{groupe}</option>
+              <option key={groupe.Groupe_Vendeur} value={groupe.Groupe_Vendeur}>
+                {groupe.Nom_Commercial || `Commercial ${groupe.Groupe_Vendeur}`}
+              </option>
             ))}
           </select>
         </div>
@@ -267,15 +271,28 @@ const Objectifs = () => {
           trend={evolutionTrend ? parseFloat(evolutionTrend.value) : null}
         />
         
-        {projectionCA && (
-          <KpiCard 
-            title="Projection CA annuel" 
-            value={projectionCA.Projection_CA_Annuel.toLocaleString('fr-FR')} 
-            unit="€" 
-            icon={<ProjectionIcon />} 
-            color="#f39c12" 
-          />
-        )}
+        {/* KPI - Projection CA */}
+        <div className="kpi">
+          <div className="kpi-icon">
+            <ProjectionIcon />
+          </div>
+          <div className="kpi-content">
+            <h3>Projection CA {selectedAnnee}</h3>
+            <div className="kpi-value">
+              {projectionCA ? 
+                <div className="kpi-value-container">
+                  <div className="kpi-value-text">
+                    {projectionCA.Projection_CA ? projectionCA.Projection_CA.toLocaleString('fr-FR') : 'N/A'} €
+                  </div>
+                  <div className="kpi-subvalue">
+                    {projectionCA.Objectif_Commercial ? `Objectif: ${projectionCA.Objectif_Commercial.toLocaleString('fr-FR')} €` : 'Pas d\'objectif'}
+                  </div>
+                </div> 
+                : 'Données non disponibles'
+              }
+            </div>
+          </div>
+        </div>
       </div>
       
       {/* Graphique d'évolution des objectifs et du CA */}
@@ -284,7 +301,9 @@ const Objectifs = () => {
         data={prepareEvolutionData()} 
         xKey="Annee" 
         yKey="CA" 
-        title={`Évolution des objectifs et du CA ${selectedGroupeVendeur ? `pour ${selectedGroupeVendeur}` : 'pour tous les groupes'}`} 
+        title={`Évolution des objectifs et du CA ${selectedGroupeVendeur ? 
+          `pour ${evolutionData.length > 0 ? evolutionData[0].Nom_Commercial || `Commercial ${selectedGroupeVendeur}` : selectedGroupeVendeur}` 
+          : 'pour tous les commerciaux'}`} 
         color="#2ecc71"
         secondaryData={prepareEvolutionData()}
         secondaryKey="Objectif"
@@ -331,7 +350,7 @@ const Objectifs = () => {
               <h3 className="chart-title">Meilleure performance</h3>
               <div className="best-worst-container">
                 <div className="best-group">
-                  <div className="group-name">{best.Groupe_Vendeur}</div>
+                  <div className="group-name">{best.Nom_Commercial || `Commercial ${best.Groupe_Vendeur}`}</div>
                   <div className="group-stats">
                     <div className="stat-item">
                       <div className="stat-label">Taux de complétion</div>
@@ -356,7 +375,7 @@ const Objectifs = () => {
               <h3 className="chart-title">Performance à améliorer</h3>
               <div className="best-worst-container">
                 <div className="worst-group">
-                  <div className="group-name">{worst.Groupe_Vendeur}</div>
+                  <div className="group-name">{worst.Nom_Commercial || `Commercial ${worst.Groupe_Vendeur}`}</div>
                   <div className="group-stats">
                     <div className="stat-item">
                       <div className="stat-label">Taux de complétion</div>
@@ -376,44 +395,6 @@ const Objectifs = () => {
             </div>
           </div>
         </div>
-      )}
-      
-      {/* Projection du CA pour l'année en cours */}
-      {projectionCA && (
-        <>
-          <h2 className="section-title">Projection du CA pour l'année en cours</h2>
-          <div className="chart-container">
-            <h3 className="chart-title">{`Projection du CA pour ${selectedGroupeVendeur} (${selectedAnnee})`}</h3>
-            <div className="projection-container">
-              <div className="projection-item">
-                <div className="projection-label">CA actuel</div>
-                <div className="projection-value">{projectionCA.CA.toLocaleString('fr-FR')} €</div>
-              </div>
-              <div className="projection-item">
-                <div className="projection-label">Objectif commercial</div>
-                <div className="projection-value">{projectionCA.Objectif_Commercial.toLocaleString('fr-FR')} €</div>
-              </div>
-              <div className="projection-item">
-                <div className="projection-label">Projection CA annuel</div>
-                <div className="projection-value">{projectionCA.Projection_CA_Annuel.toLocaleString('fr-FR')} €</div>
-              </div>
-              <div className="projection-item">
-                <div className="projection-label">Taux de complétion projeté</div>
-                <div className="projection-value">
-                  {((projectionCA.Projection_CA_Annuel / projectionCA.Objectif_Commercial) * 100).toFixed(2)} %
-                </div>
-              </div>
-            </div>
-            
-            {/* Jauge de projection */}
-            <div style={{ marginTop: '30px' }}>
-              <GaugeChart 
-                value={(projectionCA.Projection_CA_Annuel / projectionCA.Objectif_Commercial) * 100} 
-                title="Taux de complétion projeté" 
-              />
-            </div>
-          </div>
-        </>
       )}
     </Layout>
   );

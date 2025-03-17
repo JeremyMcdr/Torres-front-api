@@ -8,8 +8,16 @@ dotenv.config();
 
 const app = express();
 
+// Configuration CORS détaillée pour permettre les requêtes depuis le frontend local
+const corsOptions = {
+  origin: ['http://localhost:3000', 'https://torres.macadre.fr'],
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Routes API
@@ -40,6 +48,7 @@ async function startServer() {
     
     app.listen(PORT, () => {
       console.log(`Serveur en cours d'exécution sur le port ${PORT}`);
+      console.log(`API accessible en mode développement sur http://localhost:${PORT}`);
     });
   } catch (err) {
     console.error('Erreur lors du démarrage du serveur:', err);

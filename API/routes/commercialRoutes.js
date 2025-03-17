@@ -5,6 +5,7 @@ const commercialController = require('../controllers/commercialController');
 // Routes pour les données des commerciaux
 router.get('/pourcentage-commandes', commercialController.getPourcentageCommandesCommercial);
 router.get('/taux-reussite', commercialController.getTauxReussiteCommercial);
+router.get('/temps-conversion', commercialController.getTempsConversion);
 router.get('/list', commercialController.getAvailableCommerciaux);
 router.get('/groupes-vendeurs', commercialController.getAvailableGroupesVendeurs);
 

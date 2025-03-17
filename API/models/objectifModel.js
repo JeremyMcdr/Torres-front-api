@@ -6,22 +6,24 @@ const objectifModel = {
   async getObjectifsCommerciaux(filters = {}) {
     let query = `
       SELECT 
-        Annee, 
-        Groupe_Vendeur, 
-        Objectif_Commercial, 
-        CA 
-      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee 
+        o.Annee, 
+        o.Groupe_Vendeur,
+        ISNULL(c.COM_NomVendeur_TEXTVGRT, 'Commercial ' + CAST(o.Groupe_Vendeur AS VARCHAR(20))) AS Nom_Commercial,
+        o.Objectif_Commercial, 
+        o.CA 
+      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee o
+      LEFT JOIN dbo.Commerciaux c ON o.Groupe_Vendeur = c.COM_GroupeVendeur_VKGRP
       WHERE 1=1
     `;
     const params = [];
     
     if (filters.annee && filters.annee !== 'all') {
-      query += ` AND Annee = @param${params.length}`;
+      query += ` AND o.Annee = @param${params.length}`;
       params.push({ value: filters.annee });
     }
     
     if (filters.groupe_vendeur) {
-      query += ` AND Groupe_Vendeur = @param${params.length}`;
+      query += ` AND o.Groupe_Vendeur = @param${params.length}`;
       params.push({ value: filters.groupe_vendeur });
     }
     
@@ -55,22 +57,24 @@ const objectifModel = {
     // D'abord, récupérer les données brutes
     let query = `
       SELECT 
-        Annee, 
-        Groupe_Vendeur, 
-        Objectif_Commercial, 
-        CA
-      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee 
+        o.Annee, 
+        o.Groupe_Vendeur,
+        ISNULL(c.COM_NomVendeur_TEXTVGRT, 'Commercial ' + CAST(o.Groupe_Vendeur AS VARCHAR(20))) AS Nom_Commercial,
+        o.Objectif_Commercial, 
+        o.CA
+      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee o
+      LEFT JOIN dbo.Commerciaux c ON o.Groupe_Vendeur = c.COM_GroupeVendeur_VKGRP
       WHERE 1=1
     `;
     const params = [];
     
     if (filters.annee && filters.annee !== 'all') {
-      query += ` AND Annee = @param${params.length}`;
+      query += ` AND o.Annee = @param${params.length}`;
       params.push({ value: filters.annee });
     }
     
     if (filters.groupe_vendeur) {
-      query += ` AND Groupe_Vendeur = @param${params.length}`;
+      query += ` AND o.Groupe_Vendeur = @param${params.length}`;
       params.push({ value: filters.groupe_vendeur });
     }
     
@@ -126,10 +130,12 @@ const objectifModel = {
     // Récupérer les données brutes
     const query = `
       SELECT 
-        CA, 
-        Objectif_Commercial
-      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee 
-      WHERE Groupe_Vendeur = @param0 AND Annee = @param1
+        o.CA, 
+        o.Objectif_Commercial,
+        ISNULL(c.COM_NomVendeur_TEXTVGRT, 'Commercial ' + CAST(o.Groupe_Vendeur AS VARCHAR(20))) AS Nom_Commercial
+      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee o
+      LEFT JOIN dbo.Commerciaux c ON o.Groupe_Vendeur = c.COM_GroupeVendeur_VKGRP
+      WHERE o.Groupe_Vendeur = @param0 AND o.Annee = @param1
     `;
     
     const results = await executeQuery(query, [
@@ -160,7 +166,8 @@ const objectifModel = {
       return [{
         CA: ca,
         Objectif_Commercial: objectif,
-        Projection_CA_Annuel: projectionCAannuel
+        Projection_CA: projectionCAannuel,
+        Nom_Commercial: item.Nom_Commercial
       }];
     } catch (error) {
       console.error('Erreur lors du calcul de la projection:', error);
@@ -172,21 +179,23 @@ const objectifModel = {
   async getEvolutionObjectifsCA(groupe_vendeur) {
     let query = `
       SELECT 
-        Annee, 
-        Groupe_Vendeur, 
-        Objectif_Commercial, 
-        CA
-      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee 
+        o.Annee, 
+        o.Groupe_Vendeur, 
+        o.Objectif_Commercial, 
+        o.CA,
+        ISNULL(c.COM_NomVendeur_TEXTVGRT, 'Commercial ' + CAST(o.Groupe_Vendeur AS VARCHAR(20))) AS Nom_Commercial
+      FROM dbo.Table_Faits_CA_Objectif_Commercial_Annee o
+      LEFT JOIN dbo.Commerciaux c ON o.Groupe_Vendeur = c.COM_GroupeVendeur_VKGRP
       WHERE 1=1
     `;
     const params = [];
     
     if (groupe_vendeur) {
-      query += ` AND Groupe_Vendeur = @param${params.length}`;
+      query += ` AND o.Groupe_Vendeur = @param${params.length}`;
       params.push({ value: groupe_vendeur });
     }
     
-    query += ` ORDER BY Annee`;
+    query += ` ORDER BY o.Annee`;
     
     const results = await executeQuery(query, params);
     
