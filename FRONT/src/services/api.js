@@ -208,7 +208,7 @@ export const objectifService = {
     try {
       let url = `${API_URL}/objectifs/evolution`;
       
-      // Ajouter le filtre de groupe de vendeur si spécifié
+      // Ajouter le filtre de groupe de vendeur si spécifiés
       if (groupe_vendeur) {
         url += `?groupe_vendeur=${groupe_vendeur}`;
       }
