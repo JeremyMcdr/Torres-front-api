@@ -54,12 +54,8 @@ jobs:
             docker run -d --name torres-front \
               -p 8080:80 \
               --restart always \
-              --link torres-api:api \
               --network nginx-proxy-manager_default \
               ${{ secrets.DOCKERHUB_USERNAME }}/torres-front:latest
             
-            # Connecter également au réseau torres-network si nécessaire
-            docker network connect bridge torres-front || true
-            
             # Nettoyer les images non utilisées
-            docker image prune -f 
+            docker image prune -f

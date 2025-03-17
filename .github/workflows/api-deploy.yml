@@ -57,12 +57,12 @@ jobs:
             SQL_CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $SQL_CONTAINER_NAME)
             echo "Adresse IP du conteneur SQL Server: $SQL_CONTAINER_IP"
             
-            # Lancer le nouveau conteneur API sur le même réseau que SQL Server
+            # Lancer le nouveau conteneur API sur le même réseau que le frontend
             echo "Démarrage de l'API..."
             docker run -d --name torres-api \
-              -p 3000:3000 \
+              -p 3001:3001 \
               --restart always \
-              --network bridge \
+              --network nginx-proxy-manager_default \
               -e NODE_ENV=production \
               -e DB_HOST="$SQL_CONTAINER_IP" \
               -e DB_PORT='1433' \
@@ -71,10 +71,13 @@ jobs:
               -e DB_PASSWORD='azertyuiop1234!' \
               ${{ secrets.DOCKERHUB_USERNAME }}/torres-api:latest
             
+            # Connecter également au réseau bridge pour communiquer avec SQL Server si nécessaire
+            docker network connect bridge torres-api || true
+            
             # Nettoyer les images non utilisées
             docker image prune -f
             
             # Afficher les logs pour vérifier la connexion à la base de données
             echo "Logs de l'API (20 premières lignes) :"
             sleep 5
-            docker logs torres-api --tail 20 
+            docker logs torres-api --tail 20

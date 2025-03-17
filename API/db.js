@@ -7,7 +7,7 @@ dotenv.config();
 const DB_USER = process.env.DB_USER || 'sa';
 const DB_PASSWORD = process.env.DB_PASSWORD || 'Password123!';
 const DB_NAME = process.env.DB_NAME || 'TP_CSID';
-const DB_HOST = process.env.DB_HOST || '159.203.139.99';
+const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = process.env.DB_PORT || 1433;
 
 // Configuration de la connexion à la base de données
