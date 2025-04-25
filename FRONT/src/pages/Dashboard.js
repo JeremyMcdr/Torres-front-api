@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../components/Layout';
 import KpiCard from '../components/KpiCard';
 import BarChart from '../components/charts/BarChart';
 import PieChart from '../components/charts/PieChart';
 // import LineChart from '../components/charts/LineChart'; // Pas utilisé sur le dashboard actuel
 import { caService, commercialService, motifService, objectifService } from '../services/api';
+// Import useFocusChart
+import { useFocusChart } from '../context/FocusChartContext';
 
 // Importer les composants MUI
 import Grid from '@mui/material/Grid';
@@ -41,6 +43,9 @@ const Dashboard = () => {
   const [motifs, setMotifs] = useState([]);
   const [tauxCompletionObjectifs, setTauxCompletionObjectifs] = useState([]);
 
+  // Get context functions and state
+  const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
+
   // --- Fetch Available Years Filter ---
   useEffect(() => {
     const fetchFilterOptions = async () => {
@@ -53,8 +58,10 @@ const Dashboard = () => {
         if (yearOptions.length > 0) {
           setSelectedAnnee(yearOptions[0]);
         } else {
-          setSelectedAnnee(new Date().getFullYear());
-          setFilterError('Aucune année avec des données trouvée.');
+          const currentYear = new Date().getFullYear();
+          setSelectedAnnee(currentYear); // Fallback to current year
+          setAnnees([currentYear]); // Add current year to options if API returns none
+          setFilterError('Aucune donnée disponible pour les années précédentes, affichage de l\'année en cours.'); // Informative message
         }
       } catch (err) {
         console.error('Erreur récupération années filtre:', err);
@@ -89,6 +96,27 @@ const Dashboard = () => {
         setMotifs(motifsData);
         setTauxCompletionObjectifs(tauxCompletionData);
 
+        // Update focused chart data if dialog is open
+        if (isOpen && focusedChartInfo) {
+          console.log("Dashboard: Checking if focused chart needs update. ID:", focusedChartInfo.id);
+          switch (focusedChartInfo.id) {
+            case 'dashboard-ca-pays':
+              updateFocusedChartData('dashboard-ca-pays', caParPaysData);
+              break;
+            case 'dashboard-taux-reussite':
+              updateFocusedChartData('dashboard-taux-reussite', tauxReussiteData);
+              break;
+            case 'dashboard-motifs-pie':
+              updateFocusedChartData('dashboard-motifs-pie', motifsData);
+              break;
+            case 'dashboard-objectifs':
+              updateFocusedChartData('dashboard-objectifs', tauxCompletionData);
+              break;
+            default:
+              break; // No update needed if ID doesn't match
+          }
+        }
+
         setLoading(false);
       } catch (err) {
         console.error('Erreur lors de la récupération des données:', err);
@@ -98,12 +126,16 @@ const Dashboard = () => {
     };
 
     fetchData();
-  }, [selectedAnnee]);
+  }, [selectedAnnee, isOpen, focusedChartInfo, updateFocusedChartData]);
 
   // --- Event Handlers ---
-  const handleAnneeChange = (event) => {
-    setSelectedAnnee(event.target.value);
-  };
+  const handleFilterChange = useCallback((event) => {
+    const { name, value } = event.target;
+    if (name === 'annee') {
+        setSelectedAnnee(value);
+    }
+    // Add other filters here if needed in the future
+  }, []); // Dependency array is empty as it only uses setSelectedAnnee
 
   // --- Calculations (Memoized) ---
   const tauxReussiteMoyen = useMemo(() => {
@@ -120,6 +152,14 @@ const Dashboard = () => {
 
   const displayError = filterError || loadingError;
 
+  // Filter Definition for Dialogs (using current state)
+  const anneeFilterDefinition = useMemo(() => ({
+      config: [
+          { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
+      ],
+      onChange: handleFilterChange
+  }), [annees, selectedAnnee, handleFilterChange]);
+
   return (
     <Layout title="Tableau de bord">
       {/* --- Year Filter --- */}
@@ -133,8 +173,8 @@ const Dashboard = () => {
               value={selectedAnnee}
               label="Année"
               name="annee"
-              onChange={handleAnneeChange}
-              disabled={annees.length === 0}
+              onChange={handleFilterChange}
+              disabled={annees.length === 0 || loading}
             >
               {annees.map(annee => (
                 <MenuItem key={annee} value={annee}>{annee}</MenuItem>
@@ -195,42 +235,98 @@ const Dashboard = () => {
             </Grid>
           </Grid>
 
-          {/* Graphiques */}
+          {/* Graphiques (Wrapped in clickable Box) */}
           <Grid container spacing={3}>
+            {/* CA par Pays */}
             <Grid item xs={12} md={6}>
-              <BarChart
-                data={caParPays}
-                xKey="Pays"
-                yKey="CA"
-                title={`CA par Pays (${selectedAnnee})`}
-                color="#3498db"
-              />
+              {(() => {
+                  const chartTitle = `CA par Pays (${selectedAnnee})`;
+                  const chartProps = { xKey: "Pays", yKey: "CA", title: chartTitle, color: "#3498db" };
+                  return (
+                      <Box
+                          onClick={() => openFocusDialog({
+                              id: 'dashboard-ca-pays',
+                              type: 'bar',
+                              title: chartTitle,
+                              chartProps: chartProps,
+                              chartData: caParPays,
+                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                          })}
+                          sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                      >
+                          <BarChart data={caParPays} {...chartProps} />
+                      </Box>
+                  );
+              })()}
             </Grid>
+
+            {/* Taux Réussite Commerciaux */}
             <Grid item xs={12} md={6}>
-              <BarChart
-                data={tauxReussiteCommerciaux}
-                xKey="Commercial"
-                yKey="Taux_Reussite"
-                title={`Taux Réussite Commerciaux (${selectedAnnee})`}
-                color="#2ecc71"
-              />
+             {(() => {
+                  const chartTitle = `Taux Réussite Commerciaux (${selectedAnnee})`;
+                  const chartProps = { xKey: "Commercial", yKey: "Taux_Reussite", title: chartTitle, color: "#2ecc71", yAxisLabel: "%" }; // Added yAxisLabel
+                  return (
+                      <Box
+                          onClick={() => openFocusDialog({
+                              id: 'dashboard-taux-reussite',
+                              type: 'bar',
+                              title: chartTitle,
+                              chartProps: chartProps,
+                              chartData: tauxReussiteCommerciaux,
+                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                          })}
+                           sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                      >
+                          <BarChart data={tauxReussiteCommerciaux} {...chartProps} />
+                      </Box>
+                  );
+              })()}
             </Grid>
+
+            {/* Répartition Motifs */}
             <Grid item xs={12} md={6}>
-              <PieChart
-                data={motifs}
-                nameKey="Motif_Commande"
-                valueKey="Pourcentage"
-                title={`Répartition Motifs (${selectedAnnee})`}
-              />
+              {(() => {
+                  const chartTitle = `Répartition Motifs (${selectedAnnee})`;
+                  const chartProps = { nameKey:"Motif_Commande", valueKey:"Pourcentage", title: chartTitle };
+                  return (
+                      <Box
+                          onClick={() => openFocusDialog({
+                              id: 'dashboard-motifs-pie',
+                              type: 'pie',
+                              title: chartTitle,
+                              chartProps: chartProps,
+                              chartData: motifs,
+                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                          })}
+                           sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                      >
+                          <PieChart data={motifs} {...chartProps} />
+                      </Box>
+                  );
+              })()}
             </Grid>
+
+            {/* Taux Complétion Objectifs */}
             <Grid item xs={12} md={6}>
-              <BarChart
-                data={tauxCompletionObjectifs}
-                xKey="Groupe_Vendeur"
-                yKey="Taux_Completion"
-                title={`Taux Complétion Objectifs (${selectedAnnee})`}
-                color="#e74c3c"
-              />
+             {(() => {
+                  const chartTitle = `Taux Complétion Objectifs (${selectedAnnee})`;
+                  const chartProps = { xKey:"Groupe_Vendeur", yKey:"Taux_Completion", title: chartTitle, color:"#e74c3c", yAxisLabel: "%" }; // Added yAxisLabel
+                  return (
+                      <Box
+                          onClick={() => openFocusDialog({
+                              id: 'dashboard-objectifs',
+                              type: 'bar',
+                              title: chartTitle,
+                              chartProps: chartProps,
+                              chartData: tauxCompletionObjectifs,
+                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                          })}
+                          sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                      >
+                          <BarChart data={tauxCompletionObjectifs} {...chartProps} />
+                      </Box>
+                  );
+              })()}
             </Grid>
           </Grid>
         </>

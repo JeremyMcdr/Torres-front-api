@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../components/Layout';
 import PieChart from '../components/charts/PieChart';
 import BarChart from '../components/charts/BarChart';
 import KpiCard from '../components/KpiCard';
 import { motifService } from '../services/api';
+import { useFocusChart } from '../context/FocusChartContext';
 
 // MUI Components
 import Grid from '@mui/material/Grid';
@@ -35,6 +36,9 @@ const Motifs = () => {
 
   const [pourcentageMotifs, setPourcentageMotifs] = useState([]);
 
+  // Get context functions and state
+  const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
+
   // Fetch Filters
   useEffect(() => {
     const fetchFilters = async () => {
@@ -45,7 +49,8 @@ const Motifs = () => {
           motifService.getPourcentageMotifsByAnnee({}) // Pour les années
         ]);
 
-        setMotifsOptions(motifsData.map(item => item.Motif_Commande).sort());
+        const uniqueMotifs = [...new Set(motifsData.map(item => item.Motif_Commande))].sort();
+        setMotifsOptions(uniqueMotifs);
 
         const years = [...new Set(pourcentageAllYears.map(item => item.Annee))].sort((a, b) => b - a);
         setAnnees(years);
@@ -76,7 +81,16 @@ const Motifs = () => {
         };
 
         const pourcentageData = await motifService.getPourcentageMotifsByAnnee(filters);
+
+        // Update local state
         setPourcentageMotifs(pourcentageData);
+
+        // Update focused chart data if dialog is open
+        if (isOpen && focusedChartInfo && 
+            (focusedChartInfo.id === 'motifs-repartition' || focusedChartInfo.id === 'motifs-pourcentage-bar')) {
+            console.log("Motifs: Updating focused chart data", focusedChartInfo.id);
+            updateFocusedChartData(focusedChartInfo.id, pourcentageData);
+        }
 
         setLoading(false);
       } catch (err) {
@@ -86,13 +100,14 @@ const Motifs = () => {
       }
     };
     fetchData();
-  }, [selectedAnnee, selectedMotif]);
+  }, [selectedAnnee, selectedMotif, isOpen, focusedChartInfo, updateFocusedChartData]);
 
-  const handleFilterChange = (event) => {
+  // Use useCallback for stability
+  const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     if (name === 'annee') setSelectedAnnee(value);
     if (name === 'motif') setSelectedMotif(value);
-  };
+  }, []); // Dependencies only setters
 
   // KPIs Calculation (Memoized)
   const { motifPrincipal, pourcentageMotifPrincipal } = useMemo(() => {
@@ -107,6 +122,15 @@ const Motifs = () => {
   }, [pourcentageMotifs]);
 
   const nombreMotifs = useMemo(() => new Set(pourcentageMotifs.map(m => m.Motif_Commande)).size, [pourcentageMotifs]);
+
+  // Filter Definition for Dialogs
+  const motifsFilterDefinition = useMemo(() => ({
+      config: [
+          { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
+          { id: 'motif', label: 'Motif', options: motifsOptions, value: selectedMotif }
+      ],
+      onChange: handleFilterChange
+  }), [annees, selectedAnnee, motifsOptions, selectedMotif, handleFilterChange]);
 
   // Loading / Error Render
   if (loading && !loadingError) {
@@ -143,6 +167,7 @@ const Motifs = () => {
               label="Année"
               name="annee"
               onChange={handleFilterChange}
+              disabled={loading}
             >
               <MenuItem value="all"><em>Toutes les années</em></MenuItem>
               {annees.map(annee => (
@@ -160,6 +185,7 @@ const Motifs = () => {
               label="Motif"
               name="motif"
               onChange={handleFilterChange}
+              disabled={loading}
             >
               <MenuItem value=""><em>Tous les motifs</em></MenuItem>
               {motifsOptions.map(motif => (
@@ -199,24 +225,52 @@ const Motifs = () => {
         </Grid>
       </Grid>
 
-      {/* Graphiques */}
+      {/* Graphiques (Wrapped in clickable Box) */}
       <Grid container spacing={3}>
+        {/* Répartition (Pie) */}
         <Grid item xs={12} md={6}>
-          <PieChart
-            data={pourcentageMotifs}
-            nameKey="Motif_Commande"
-            valueKey="Pourcentage"
-            title={`Répartition (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedMotif ? ` / ${selectedMotif}`: ''})`}
-          />
+          {(() => {
+            const chartTitle = `Répartition (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedMotif ? ` / ${selectedMotif}`: ''})`;
+            const chartProps = { nameKey:"Motif_Commande", valueKey:"Pourcentage", title: chartTitle };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'motifs-repartition',
+                        type: 'pie',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: pourcentageMotifs,
+                        filterDefinition: motifsFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <PieChart data={pourcentageMotifs} {...chartProps} />
+                </Box>
+            );
+          })()}
         </Grid>
+
+        {/* Pourcentage par Motif (Bar) */}
         <Grid item xs={12} md={6}>
-          <BarChart
-            data={pourcentageMotifs}
-            xKey="Motif_Commande"
-            yKey="Pourcentage"
-            title={`% par Motif (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedMotif ? ` / ${selectedMotif}`: ''})`}
-            color="#2ecc71"
-          />
+          {(() => {
+            const chartTitle = `% par Motif (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedMotif ? ` / ${selectedMotif}`: ''})`;
+            const chartProps = { xKey: "Motif_Commande", yKey: "Pourcentage", title: chartTitle, color: "#2ecc71", yAxisLabel: "%" }; // Added yAxisLabel
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'motifs-pourcentage-bar',
+                        type: 'bar',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: pourcentageMotifs,
+                        filterDefinition: motifsFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <BarChart data={pourcentageMotifs} {...chartProps} />
+                </Box>
+            );
+          })()}
         </Grid>
       </Grid>
     </Layout>

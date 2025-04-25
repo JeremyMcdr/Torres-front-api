@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../components/Layout';
 import BarChart from '../components/charts/BarChart';
 import LineChart from '../components/charts/LineChart';
@@ -6,6 +6,7 @@ import GaugeChart from '../components/charts/GaugeChart';
 import ComparisonChart from '../components/charts/ComparisonChart';
 import KpiCard from '../components/KpiCard';
 import { objectifService, commercialService } from '../services/api';
+import { useFocusChart } from '../context/FocusChartContext';
 // import './Objectifs.css'; // Remove CSS import
 
 // MUI Components
@@ -45,6 +46,9 @@ const Objectifs = () => {
   const [projectionCA, setProjectionCA] = useState(null);
   const [evolutionData, setEvolutionData] = useState([]);
 
+  // Get context functions and state
+  const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
+
   // Fetch Filters
   useEffect(() => {
     const fetchFilters = async () => {
@@ -61,7 +65,14 @@ const Objectifs = () => {
         const yearOptions = [...new Set(objectifsAllYears.map(item => item.Annee))].sort((a, b) => b - a);
         setAnnees(yearOptions);
 
-        if (yearOptions.length > 0) setSelectedAnnee(yearOptions[0]);
+        if (yearOptions.length > 0) {
+            setSelectedAnnee(yearOptions[0]);
+        } else {
+            const currentYear = new Date().getFullYear();
+            setSelectedAnnee(currentYear); // Fallback
+            setAnnees([currentYear]);
+            console.warn('Aucune année avec des données d\'objectifs trouvée, utilisation de l\'année en cours.')
+        }
         // Keep selectedGroupeVendeur empty initially to show "Tous les groupes"
 
       } catch (err) {
@@ -82,27 +93,74 @@ const Objectifs = () => {
         setLoadingError(null);
 
         const currentYear = new Date().getFullYear();
+        const anneeFilterValue = selectedAnnee !== 'all' ? selectedAnnee : undefined;
+        const groupeFilterValue = selectedGroupeVendeur || undefined;
+
         const filters = {
-          annee: selectedAnnee !== 'all' ? selectedAnnee : undefined,
-          groupe_vendeur: selectedGroupeVendeur || undefined,
+          annee: anneeFilterValue,
+          groupe_vendeur: groupeFilterValue,
         };
 
         const [objectifsData, tauxCompletionData, evolutionDataRes] = await Promise.all([
           objectifService.getObjectifsCommerciaux(filters),
           objectifService.getTauxCompletionObjectifs(filters),
-          objectifService.getEvolutionObjectifsCA(filters.groupe_vendeur) // Evolution depends only on group
+          objectifService.getEvolutionObjectifsCA(groupeFilterValue) // Evolution depends only on group
         ]);
 
+        // Update local state
         setObjectifs(objectifsData);
         setTauxCompletion(tauxCompletionData);
         setEvolutionData(evolutionDataRes);
 
         // Fetch projection only if a group is selected and it's the current year
+        let newProjectionCA = null;
         if (selectedGroupeVendeur && selectedAnnee === currentYear) {
           const projectionData = await objectifService.getProjectionCA(selectedGroupeVendeur, selectedAnnee);
-          setProjectionCA(projectionData[0]);
+          newProjectionCA = projectionData[0];
+          setProjectionCA(newProjectionCA);
         } else {
           setProjectionCA(null);
+        }
+
+        // Update focused chart data if dialog is open
+        if (isOpen && focusedChartInfo) {
+            console.log("Objectifs: Checking if focused chart needs update. ID:", focusedChartInfo.id);
+             // Memoized calculation depends on objectifsData
+            const newComparisonData = objectifsData.map(item => ({
+                Groupe_Vendeur: item.Nom_Commercial || item.Groupe_Vendeur,
+                Objectif: parseFloat(item.Objectif_Commercial || 0),
+                Realisation: parseFloat(item.CA || 0)
+            }));
+             // Memoized calculation depends on evolutionDataRes
+            const newEvolutionChartData = evolutionDataRes.map(item => ({
+                Annee: item.Annee.toString(),
+                Objectif: parseFloat(selectedGroupeVendeur ? item.Objectif_Commercial : item.Objectif_Total || 0),
+                CA: parseFloat(selectedGroupeVendeur ? item.CA : item.CA_Total || 0),
+            }));
+
+            switch (focusedChartInfo.id) {
+                case 'objectifs-taux-completion-bar':
+                    updateFocusedChartData('objectifs-taux-completion-bar', tauxCompletionData);
+                    break;
+                case 'objectifs-comparison':
+                    updateFocusedChartData('objectifs-comparison', newComparisonData);
+                    break;
+                case 'objectifs-evolution':
+                     // Check if the focused chart ID matches and update
+                    updateFocusedChartData('objectifs-evolution', newEvolutionChartData);
+                    break;
+                case 'objectifs-completion-gauge':
+                     // Calculate the global completion rate based on the new data
+                    const newObjectifTotal = objectifsData.reduce((acc, curr) => acc + parseFloat(curr.Objectif_Commercial || 0), 0);
+                    const newCaTotal = objectifsData.reduce((acc, curr) => acc + parseFloat(curr.CA || 0), 0);
+                    const newTauxCompletionGlobal = newObjectifTotal !== 0 ? ((newCaTotal / newObjectifTotal) * 100) : 0;
+                    // Gauge often takes a single value, ensure it's formatted correctly for the component
+                    updateFocusedChartData('objectifs-completion-gauge', [{ value: parseFloat(newTauxCompletionGlobal.toFixed(2)) }]);
+                    break;
+                // Add cases for other charts if they become focusable
+                default:
+                    break;
+            }
         }
 
         setLoading(false);
@@ -113,15 +171,17 @@ const Objectifs = () => {
       }
     };
     fetchData();
-  }, [selectedAnnee, selectedGroupeVendeur]);
+   // Add context dependencies
+  }, [selectedAnnee, selectedGroupeVendeur, isOpen, focusedChartInfo, updateFocusedChartData]);
 
-  const handleFilterChange = (event) => {
+  // Use useCallback for stability
+  const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     if (name === 'annee') setSelectedAnnee(value);
     if (name === 'groupe-vendeur') setSelectedGroupeVendeur(value);
-  };
+  }, []); // Dependencies only setters
 
-  // --- Calculations (Memoized) ---
+  // --- Calculations (Memoized - definitions remain mostly the same, but ensure dependencies are correct) ---
   const objectifTotal = useMemo(() => objectifs.reduce((acc, curr) => acc + parseFloat(curr.Objectif_Commercial || 0), 0), [objectifs]);
   const caTotal = useMemo(() => objectifs.reduce((acc, curr) => acc + parseFloat(curr.CA || 0), 0), [objectifs]);
   const tauxCompletionMoyen = useMemo(() => {
@@ -130,7 +190,7 @@ const Objectifs = () => {
       return (total / tauxCompletion.length).toFixed(2);
   }, [tauxCompletion]);
 
-  const tauxCompletionGlobal = useMemo(() => objectifTotal !== 0 ? ((caTotal / objectifTotal) * 100).toFixed(2) : 0, [caTotal, objectifTotal]);
+  const tauxCompletionGlobal = useMemo(() => objectifTotal !== 0 ? parseFloat(((caTotal / objectifTotal) * 100).toFixed(2)) : 0, [caTotal, objectifTotal]);
 
   const comparisonData = useMemo(() => objectifs.map(item => ({
     Groupe_Vendeur: item.Nom_Commercial || item.Groupe_Vendeur,
@@ -139,12 +199,14 @@ const Objectifs = () => {
   })), [objectifs]);
 
   const evolutionChartData = useMemo(() => evolutionData.map(item => ({
-    Annee: item.Annee.toString(),
+    Annee: item.Annee.toString(), // Ensure Annee is a string for chart keys
     Objectif: parseFloat(selectedGroupeVendeur ? item.Objectif_Commercial : item.Objectif_Total || 0),
     CA: parseFloat(selectedGroupeVendeur ? item.CA : item.CA_Total || 0),
-  })), [evolutionData, selectedGroupeVendeur]);
+  })).sort((a, b) => parseInt(a.Annee) - parseInt(b.Annee)), [evolutionData, selectedGroupeVendeur]); // Sort by year
+
 
   const { best, worst } = useMemo(() => {
+    // ... (existing best/worst logic remains the same) ...
       if (tauxCompletion.length === 0) return { best: null, worst: null };
       const sorted = [...tauxCompletion].sort((a, b) => parseFloat(b.Taux_Completion || 0) - parseFloat(a.Taux_Completion || 0));
       return {
@@ -152,6 +214,23 @@ const Objectifs = () => {
         worst: sorted[sorted.length - 1]
       };
   }, [tauxCompletion]);
+
+  // Filter Definition for Dialogs
+  const objectifsFilterDefinition = useMemo(() => ({
+      config: [
+          { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
+          { id: 'groupe-vendeur', label: 'Groupe Vendeur', options: groupesVendeurs.map(g => ({ value: g.Groupe_Vendeur, label: g.Nom_Commercial || `Groupe ${g.Groupe_Vendeur}` })), value: selectedGroupeVendeur }
+      ],
+      onChange: handleFilterChange
+  }), [annees, selectedAnnee, groupesVendeurs, selectedGroupeVendeur, handleFilterChange]);
+
+  // Filter definition only for Evolution chart (group only)
+  const evolutionFilterDefinition = useMemo(() => ({
+      config: [
+           { id: 'groupe-vendeur', label: 'Groupe Vendeur', options: groupesVendeurs.map(g => ({ value: g.Groupe_Vendeur, label: g.Nom_Commercial || `Groupe ${g.Groupe_Vendeur}` })), value: selectedGroupeVendeur }
+      ],
+       onChange: handleFilterChange
+  }), [groupesVendeurs, selectedGroupeVendeur, handleFilterChange]);
 
   // --- Render Loading/Error ---
   if (loading && !loadingError) {
@@ -188,8 +267,9 @@ const Objectifs = () => {
               label="Année"
               name="annee"
               onChange={handleFilterChange}
+              disabled={loading}
             >
-              <MenuItem value="all"><em>Toutes les années</em></MenuItem>
+              {/* <MenuItem value="all"><em>Toutes les années</em></MenuItem> Removed 'all' as evolution handles aggregation */}
               {annees.map(annee => (
                 <MenuItem key={annee} value={annee}>{annee}</MenuItem>
               ))}
@@ -203,8 +283,9 @@ const Objectifs = () => {
               id="groupe-vendeur-select"
               value={selectedGroupeVendeur}
               label="Groupe Vendeur"
-              name="groupe-vendeur"
+              name="groupe-vendeur" // Use hyphenated name consistent with handler
               onChange={handleFilterChange}
+              disabled={loading}
             >
               <MenuItem value=""><em>Tous les groupes</em></MenuItem>
               {groupesVendeurs.map(g => (
@@ -248,13 +329,13 @@ const Objectifs = () => {
         </Grid>
         {projectionCA && (
           <Grid item xs={12} sm={6} md={3}>
-            <KpiCard
-              title={`Projection CA ${selectedAnnee}`}
+             <KpiCard
+              title="Projection Fin Année"
               value={parseFloat(projectionCA.Projection_CA || 0).toLocaleString('fr-FR')}
               unit="€"
               icon={<OnlinePredictionIcon fontSize="large" />}
               color="#9b59b6"
-            />
+             />
           </Grid>
         )}
       </Grid>
@@ -328,6 +409,123 @@ const Objectifs = () => {
           </Grid>
         )}
 
+      </Grid>
+
+      {/* Graphiques (Wrapped in clickable Box) */}
+      <Grid container spacing={3}>
+        {/* Taux Complétion par Groupe (Bar) */}
+        <Grid item xs={12} md={6}>
+          {(() => {
+            const chartTitle = `Taux Complétion Objectifs (${selectedAnnee === 'all' ? 'Global' : selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur}` : ''})`;
+            const chartProps = { xKey:"Groupe_Vendeur", yKey:"Taux_Completion", title: chartTitle, color:"#e74c3c", yAxisLabel:"%" };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'objectifs-taux-completion-bar',
+                        type: 'bar',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: tauxCompletion,
+                        filterDefinition: objectifsFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <BarChart data={tauxCompletion} {...chartProps} />
+                </Box>
+            );
+          })()}
+        </Grid>
+
+        {/* Objectif vs Réalisation (Comparison/Bar) */}
+        <Grid item xs={12} md={6}>
+          {(() => {
+            const chartTitle = `Objectif vs Réalisation (${selectedAnnee === 'all' ? 'Global' : selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur}` : ''})`;
+            const chartProps = {
+                data: comparisonData, // Pass data directly here
+                xKey: "Groupe_Vendeur",
+                bar1Key: "Objectif",
+                bar2Key: "Realisation",
+                bar1Name: "Objectif (€)",
+                bar2Name: "Réalisé (€)",
+                title: chartTitle
+            };
+             // Extract props needed for dialog (without data)
+            const dialogChartProps = { ...chartProps };
+            delete dialogChartProps.data;
+
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'objectifs-comparison',
+                        type: 'comparison', // Use the specific chart type
+                        title: chartTitle,
+                        chartProps: dialogChartProps,
+                        chartData: comparisonData, // Pass the memoized data
+                        filterDefinition: objectifsFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <ComparisonChart {...chartProps} />
+                </Box>
+            );
+          })()}
+        </Grid>
+
+        {/* Évolution Objectifs/CA (Line) */}
+        <Grid item xs={12} md={6}>
+          {(() => {
+            const chartTitle = `Évolution Objectif vs CA ${selectedGroupeVendeur ? `(${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur})` : '(Global)'}`;
+            const chartProps = {
+                xKey: "Annee",
+                yKeys: ["Objectif", "CA"],
+                colors: ["#e74c3c", "#2ecc71"],
+                title: chartTitle
+            };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'objectifs-evolution',
+                        type: 'line',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: evolutionChartData, // Pass the memoized data
+                        // Only allow filtering by group for evolution
+                        filterDefinition: evolutionFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <LineChart data={evolutionChartData} {...chartProps} />
+                </Box>
+            );
+          })()}
+        </Grid>
+
+         {/* Taux Complétion Global (Gauge) */}
+        <Grid item xs={12} md={6}>
+          {(() => {
+            const chartTitle = `Taux Complétion Global (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur}` : ''})`;
+            // Gauge often takes a single value, not an array
+            const gaugeValue = tauxCompletionGlobal;
+            const chartProps = { value: gaugeValue, title: chartTitle };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'objectifs-completion-gauge',
+                        type: 'gauge',
+                        title: chartTitle,
+                        chartProps: { title: chartTitle }, // Pass non-data props
+                        // Pass data in the format expected by update logic ({value: ...})
+                        chartData: [{ value: gaugeValue }],
+                        filterDefinition: objectifsFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                 >
+                    {/* Render Gauge normally on page */}
+                    <GaugeChart {...chartProps} />
+                 </Box>
+            );
+          })()}
+        </Grid>
       </Grid>
     </Layout>
   );

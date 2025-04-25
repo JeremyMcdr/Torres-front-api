@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../components/Layout';
 import BarChart from '../components/charts/BarChart';
 import KpiCard from '../components/KpiCard';
 import { commercialService } from '../services/api';
+import { useFocusChart } from '../context/FocusChartContext';
 
 // Importer les composants MUI
 import Grid from '@mui/material/Grid';
@@ -39,6 +40,9 @@ const Commerciaux = () => {
   const [tauxReussite, setTauxReussite] = useState([]);
   const [tempsConversion, setTempsConversion] = useState([]);
 
+  // Get context functions and state
+  const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
+
   // Récupérer les années et commerciaux disponibles
   useEffect(() => {
     const fetchFilters = async () => {
@@ -61,7 +65,10 @@ const Commerciaux = () => {
         if (years.length > 0) {
           setSelectedAnnee(years[0]);
         } else {
-          setSelectedAnnee('all');
+          const currentYear = new Date().getFullYear();
+          setSelectedAnnee(currentYear);
+          setAnnees([currentYear]);
+          console.warn('Aucune année avec des données commerciales trouvée, utilisation de l\'année en cours.')
         }
       } catch (err) {
         console.error('Erreur lors de la récupération des filtres:', err);
@@ -85,37 +92,75 @@ const Commerciaux = () => {
           commercial: selectedCommercial || undefined,
         };
 
+        // Fetch data, removing getNombreConversions call
         const [pourcentageData, tauxReussiteData, tempsConversionData] = await Promise.all([
           commercialService.getPourcentageCommandesCommercial(filters),
           commercialService.getTauxReussiteCommercial(filters),
           commercialService.getTempsConversion(filters)
+          // Removed: commercialService.getNombreConversions(filters)
         ]);
 
+        // Update local state
         setPourcentageCommandes(pourcentageData);
         setTauxReussite(tauxReussiteData);
         setTempsConversion(tempsConversionData);
+        // Removed: setNombreConversions(nbConversionsData);
+
+         // Update focused chart data if dialog is open
+        if (isOpen && focusedChartInfo) {
+            console.log("Commerciaux: Checking if focused chart needs update. ID:", focusedChartInfo.id);
+            switch (focusedChartInfo.id) {
+                case 'commerciaux-pct-commandes':
+                    updateFocusedChartData('commerciaux-pct-commandes', pourcentageData);
+                    break;
+                case 'commerciaux-taux-reussite':
+                    updateFocusedChartData('commerciaux-taux-reussite', tauxReussiteData);
+                    break;
+                case 'commerciaux-temps-conversion':
+                    updateFocusedChartData('commerciaux-temps-conversion', tempsConversionData);
+                    break;
+                case 'commerciaux-nb-conversions':
+                    // Update this chart using tempsConversionData
+                    updateFocusedChartData('commerciaux-nb-conversions', tempsConversionData);
+                    break;
+                default:
+                    break;
+            }
+        }
 
         setLoading(false);
       } catch (err) {
-        console.error('Erreur lors de la récupération des données:', err);
-        setLoadingError('Erreur lors de la récupération des données. Veuillez réessayer plus tard.');
+        // Log the specific error for debugging
+        console.error('Erreur lors de la récupération des données dans Commerciaux.js:', err);
+        setLoadingError(`Erreur lors de la récupération des données: ${err.message || 'Veuillez réessayer plus tard.'}`);
         setLoading(false);
       }
     };
     fetchData();
-  }, [selectedAnnee, selectedCommercial]);
+  }, [selectedAnnee, selectedCommercial, isOpen, focusedChartInfo, updateFocusedChartData]);
 
-  const handleFilterChange = (event) => {
+  // Use useCallback for stability
+  const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     if (name === 'annee') setSelectedAnnee(value);
     if (name === 'commercial') setSelectedCommercial(value);
-  };
+  }, []); // Dependencies only setters
 
-  // Calculer les KPIs
-  const tauxReussiteMoyen = tauxReussite.length === 0 ? 0 : (tauxReussite.reduce((acc, curr) => acc + parseFloat(curr.Taux_Reussite || 0), 0) / tauxReussite.length).toFixed(2);
-  const tempsConversionMoyen = tempsConversion.length === 0 ? 0 : (tempsConversion.reduce((acc, curr) => acc + parseFloat(curr.Temps_Moyen_Conversion || 0), 0) / tempsConversion.length).toFixed(1);
-  const nombreConversionsTotal = tempsConversion.reduce((acc, curr) => acc + parseInt(curr.Nombre_Conversions || 0), 0);
-  const nombreCommerciauxFiltres = new Set(pourcentageCommandes.map(c => c.Commercial)).size; // Compter les commerciaux uniques dans les données filtrées
+  // Calculer les KPIs (useMemo for derived values)
+  const tauxReussiteMoyen = useMemo(() => tauxReussite.length === 0 ? 0 : (tauxReussite.reduce((acc, curr) => acc + parseFloat(curr.Taux_Reussite || 0), 0) / tauxReussite.length).toFixed(2), [tauxReussite]);
+  const tempsConversionMoyen = useMemo(() => tempsConversion.length === 0 ? 0 : (tempsConversion.reduce((acc, curr) => acc + parseFloat(curr.Temps_Moyen_Conversion || 0), 0) / tempsConversion.length).toFixed(1), [tempsConversion]);
+  // Calculate total conversions from tempsConversion data
+  const nombreConversionsTotal = useMemo(() => tempsConversion.reduce((acc, curr) => acc + parseInt(curr.Nombre_Conversions || 0), 0), [tempsConversion]);
+  const nombreCommerciauxFiltres = useMemo(() => new Set(pourcentageCommandes.map(c => c.Commercial)).size, [pourcentageCommandes]);
+
+  // Filter Definition for Dialogs
+  const commerciauxFilterDefinition = useMemo(() => ({
+      config: [
+          { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
+          { id: 'commercial', label: 'Commercial', options: commerciaux.map(c => ({ value: c.id, label: c.nom })), value: selectedCommercial }
+      ],
+      onChange: handleFilterChange
+  }), [annees, selectedAnnee, commerciaux, selectedCommercial, handleFilterChange]);
 
   // Rendu Chargement
   if (loading && !loadingError) {
@@ -152,6 +197,7 @@ const Commerciaux = () => {
               label="Année"
               name="annee"
               onChange={handleFilterChange}
+              disabled={loading}
             >
               <MenuItem value="all"><em>Toutes les années</em></MenuItem>
               {annees.map(annee => (
@@ -169,6 +215,7 @@ const Commerciaux = () => {
               label="Commercial"
               name="commercial"
               onChange={handleFilterChange}
+              disabled={loading}
             >
               <MenuItem value=""><em>Tous les commerciaux</em></MenuItem>
               {commerciaux.map(c => (
@@ -217,43 +264,98 @@ const Commerciaux = () => {
         </Grid>
       </Grid>
 
-      {/* Graphiques */}
+      {/* Graphiques (Wrapped in clickable Box) */}
       <Grid container spacing={3}>
+        {/* % Commandes */}
         <Grid item xs={12} md={6}>
-          <BarChart
-            data={pourcentageCommandes}
-            xKey="Nom_Commercial"
-            yKey="Pourcentage_Commandes"
-            title={`% Commandes (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
-            color="#3498db"
-          />
+          {(() => {
+            const chartTitle = `% Commandes (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedCommercial ? ` / ${commerciaux.find(c => c.id === selectedCommercial)?.nom || selectedCommercial}` : ''})`;
+            const chartProps = { xKey:"Nom_Commercial", yKey:"Pourcentage_Commandes", title: chartTitle, color:"#3498db", yAxisLabel:"%" };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'commerciaux-pct-commandes',
+                        type: 'bar',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: pourcentageCommandes,
+                        filterDefinition: commerciauxFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <BarChart data={pourcentageCommandes} {...chartProps} />
+                </Box>
+            );
+          })()}
         </Grid>
+
+        {/* Taux Réussite */}
         <Grid item xs={12} md={6}>
-          <BarChart
-            data={tauxReussite}
-            xKey="Nom_Commercial"
-            yKey="Taux_Reussite"
-            title={`Taux Réussite (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
-            color="#2ecc71"
-          />
+           {(() => {
+            const chartTitle = `Taux Réussite (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedCommercial ? ` / ${commerciaux.find(c => c.id === selectedCommercial)?.nom || selectedCommercial}` : ''})`;
+            const chartProps = { xKey:"Nom_Commercial", yKey:"Taux_Reussite", title: chartTitle, color:"#2ecc71", yAxisLabel:"%" };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'commerciaux-taux-reussite',
+                        type: 'bar',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: tauxReussite,
+                        filterDefinition: commerciauxFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <BarChart data={tauxReussite} {...chartProps} />
+                </Box>
+            );
+          })()}
         </Grid>
+
+        {/* Temps Conv. Moyen */}
         <Grid item xs={12} md={6}>
-          <BarChart
-            data={tempsConversion}
-            xKey="Nom_Commercial"
-            yKey="Temps_Moyen_Conversion"
-            title={`Temps Conv. Moyen (jours) (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
-            color="#9b59b6"
-          />
+          {(() => {
+            const chartTitle = `Temps Conv. Moyen (jours) (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedCommercial ? ` / ${commerciaux.find(c => c.id === selectedCommercial)?.nom || selectedCommercial}` : ''})`;
+            const chartProps = { xKey:"Nom_Commercial", yKey:"Temps_Moyen_Conversion", title: chartTitle, color:"#9b59b6", yAxisLabel:"Jours" };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'commerciaux-temps-conversion',
+                        type: 'bar',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: tempsConversion,
+                        filterDefinition: commerciauxFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                >
+                    <BarChart data={tempsConversion} {...chartProps} />
+                </Box>
+            );
+          })()}
         </Grid>
+
+         {/* Nombre Conversions */}
         <Grid item xs={12} md={6}>
-          <BarChart
-            data={tempsConversion} // Utilise les mêmes données que le temps moyen
-            xKey="Nom_Commercial"
-            yKey="Nombre_Conversions"
-            title={`Nombre Conversions (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
-            color="#f39c12"
-          />
+          {(() => {
+            const chartTitle = `Nombre Conversions (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedCommercial ? ` / ${commerciaux.find(c => c.id === selectedCommercial)?.nom || selectedCommercial}` : ''})`;
+            const chartProps = { xKey:"Nom_Commercial", yKey:"Nombre_Conversions", title: chartTitle, color:"#f39c12" };
+            return (
+                <Box
+                    onClick={() => openFocusDialog({
+                        id: 'commerciaux-nb-conversions',
+                        type: 'bar',
+                        title: chartTitle,
+                        chartProps: chartProps,
+                        chartData: tempsConversion,
+                        filterDefinition: commerciauxFilterDefinition
+                    })}
+                    sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
+                 >
+                    <BarChart data={tempsConversion} {...chartProps} />
+                 </Box>
+            );
+          })()}
         </Grid>
       </Grid>
     </Layout>
