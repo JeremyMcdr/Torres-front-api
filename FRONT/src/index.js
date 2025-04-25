@@ -3,10 +3,15 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+// ThemeProvider and CssBaseline are now handled in App.js
+// import { ThemeProvider } from '@mui/material/styles';
+// import CssBaseline from '@mui/material/CssBaseline';
+// import theme from './theme'; // Theme is now dynamic
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
+    {/* Just render App, it handles the theme now */}
     <App />
   </React.StrictMode>
 );

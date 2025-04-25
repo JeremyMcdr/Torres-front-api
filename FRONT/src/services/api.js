@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 // Utiliser l'API locale en développement et l'API en ligne en production
-const isDevEnvironment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_URL = isDevEnvironment ? 'http://localhost:3001/api' : 'https://torres.api.macadre.fr/api';
+// const isDevEnvironment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+// const API_URL = isDevEnvironment ? 'http://localhost:3001/api' : 'https://torres.api.macadre.fr/api';
+const API_URL = 'http://159.203.139.99:3001/api'; // Force production API
 
 // Service pour les données de chiffre d'affairess
 export const caService = {

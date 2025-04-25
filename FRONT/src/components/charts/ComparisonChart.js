@@ -1,6 +1,11 @@
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
-import './Chart.css';
+import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import CardHeader from '@mui/material/CardHeader';
+// import './Chart.css'; // Removed
+
+const CHART_HEIGHT = 400; // Keep original height for Comparison
 
 const ComparisonChart = ({ 
   data, 
@@ -13,35 +18,48 @@ const ComparisonChart = ({
   label1 = 'Objectif', 
   label2 = 'Réalisation' 
 }) => {
-  // Formatter pour les tooltips
   const formatTooltip = (value) => {
-    return `${value.toLocaleString('fr-FR')} €`;
+    // Vérifier si la valeur est numérique avant de la formater
+    if (typeof value === 'number') {
+      return `${value.toLocaleString('fr-FR')} €`;
+    }
+    return value; // Retourner la valeur telle quelle si ce n'est pas un nombre
   };
 
   return (
-    <div className="chart-container">
-      <h3 className="chart-title">{title}</h3>
-      <ResponsiveContainer width="100%" height={400}>
-        <BarChart
-          data={data}
-          margin={{
-            top: 20,
-            right: 30,
-            left: 20,
-            bottom: 5,
-          }}
-        >
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey={xKey} />
-          <YAxis />
-          <Tooltip formatter={formatTooltip} />
-          <Legend />
-          <Bar dataKey={yKey1} name={label1} fill={color1} />
-          <Bar dataKey={yKey2} name={label2} fill={color2} />
-          <ReferenceLine y={0} stroke="#000" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <Card sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <CardHeader
+        title={title}
+        titleTypographyProps={{ variant: 'h6', align: 'center' }}
+        sx={{ pb: 0 }}
+      />
+      <CardContent sx={{ height: CHART_HEIGHT, width: '100%', p: 1, pt: 2, '& .recharts-wrapper': { width: '100% !important' } }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsBarChart
+            data={data}
+            margin={{
+              top: 5,
+              right: 30,
+              left: 0,
+              bottom: 5,
+            }}
+          >
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip
+              formatter={formatTooltip}
+              contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: '8px', border: '1px solid #ccc' }}
+              itemStyle={{ color: '#333' }}
+            />
+            <Legend wrapperStyle={{ fontSize: '12px' }}/>
+            <ReferenceLine y={0} stroke="#000" />
+            <Bar dataKey={yKey1} name={label1} fill={color1} />
+            <Bar dataKey={yKey2} name={label2} fill={color2} />
+          </RechartsBarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
   );
 };
 

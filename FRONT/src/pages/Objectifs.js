@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Layout from '../components/Layout';
 import BarChart from '../components/charts/BarChart';
 import LineChart from '../components/charts/LineChart';
@@ -6,396 +6,329 @@ import GaugeChart from '../components/charts/GaugeChart';
 import ComparisonChart from '../components/charts/ComparisonChart';
 import KpiCard from '../components/KpiCard';
 import { objectifService, commercialService } from '../services/api';
-import './Objectifs.css';
+// import './Objectifs.css'; // Remove CSS import
 
-// Icônes pour les KPIs
-import { ReactComponent as TargetIcon } from '../assets/target-icon.svg';
-import { ReactComponent as ChartIcon } from '../assets/chart-icon.svg';
-import { ReactComponent as PercentIcon } from '../assets/percent-icon.svg';
-import { ReactComponent as ProjectionIcon } from '../assets/projection-icon.svg';
+// MUI Components
+import Grid from '@mui/material/Grid';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Typography from '@mui/material/Typography';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import CardHeader from '@mui/material/CardHeader';
+
+// MUI Icons
+import TrackChangesIcon from '@mui/icons-material/TrackChanges'; // Objectif Total
+import MonetizationOnIcon from '@mui/icons-material/MonetizationOn'; // CA Total
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'; // Taux Completion
+import OnlinePredictionIcon from '@mui/icons-material/OnlinePrediction'; // Projection
 
 const Objectifs = () => {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  
-  // États pour les filtres
+  const [loadingError, setLoadingError] = useState(null);
+  const [filterError, setFilterError] = useState(null);
+
   const [annees, setAnnees] = useState([]);
   const [groupesVendeurs, setGroupesVendeurs] = useState([]);
-  const [selectedAnnee, setSelectedAnnee] = useState(new Date().getFullYear());
+  const [selectedAnnee, setSelectedAnnee] = useState('');
   const [selectedGroupeVendeur, setSelectedGroupeVendeur] = useState('');
-  
-  // États pour les données
+
   const [objectifs, setObjectifs] = useState([]);
   const [tauxCompletion, setTauxCompletion] = useState([]);
   const [projectionCA, setProjectionCA] = useState(null);
   const [evolutionData, setEvolutionData] = useState([]);
-  
-  // Récupérer les années et groupes de vendeurs disponibles
+
+  // Fetch Filters
   useEffect(() => {
     const fetchFilters = async () => {
       try {
-        // Récupérer les groupes de vendeurs
-        const groupesVendeursData = await commercialService.getAvailableGroupesVendeurs();
-        // Stocker les données complètes des groupes de vendeurs, pas juste les identifiants
-        setGroupesVendeurs(groupesVendeursData);
-        
-        // Récupérer les objectifs pour obtenir les années disponibles
-        const objectifsData = await objectifService.getObjectifsCommerciaux({});
-        const years = [...new Set(objectifsData.map(item => item.Annee))];
-        setAnnees(years);
-        
-        // Définir l'année la plus récente comme valeur par défaut
-        if (years.length > 0) {
-          const latestYear = Math.max(...years);
-          setSelectedAnnee(latestYear);
-        }
-        
-        // Définir le premier groupe de vendeur comme valeur par défaut
-        if (groupesVendeursData.length > 0) {
-          setSelectedGroupeVendeur(groupesVendeursData[0].Groupe_Vendeur);
-        }
+        setFilterError(null);
+        const [groupesData, objectifsAllYears] = await Promise.all([
+          commercialService.getAvailableGroupesVendeurs(),
+          objectifService.getObjectifsCommerciaux({}) // Pour les années
+        ]);
+
+        const groupOptions = groupesData.sort((a, b) => (a.Nom_Commercial || '').localeCompare(b.Nom_Commercial || ''));
+        setGroupesVendeurs(groupOptions);
+
+        const yearOptions = [...new Set(objectifsAllYears.map(item => item.Annee))].sort((a, b) => b - a);
+        setAnnees(yearOptions);
+
+        if (yearOptions.length > 0) setSelectedAnnee(yearOptions[0]);
+        // Keep selectedGroupeVendeur empty initially to show "Tous les groupes"
+
       } catch (err) {
-        console.error('Erreur lors de la récupération des filtres:', err);
-        setError('Erreur lors de la récupération des filtres. Veuillez réessayer plus tard.');
+        console.error('Erreur filtres:', err);
+        setFilterError('Erreur récupération options filtre.');
       }
     };
-    
     fetchFilters();
   }, []);
-  
-  // Récupérer les données en fonction des filtres
+
+  // Fetch Data based on Filters
   useEffect(() => {
+    if (!selectedAnnee) return; // Wait for filters to load
+
     const fetchData = async () => {
       try {
         setLoading(true);
-        
-        // Récupérer les objectifs commerciaux
-        const filters = { annee: selectedAnnee };
-        if (selectedGroupeVendeur) {
-          filters.groupe_vendeur = selectedGroupeVendeur;
-        }
-        const objectifsData = await objectifService.getObjectifsCommerciaux(filters);
+        setLoadingError(null);
+
+        const currentYear = new Date().getFullYear();
+        const filters = {
+          annee: selectedAnnee !== 'all' ? selectedAnnee : undefined,
+          groupe_vendeur: selectedGroupeVendeur || undefined,
+        };
+
+        const [objectifsData, tauxCompletionData, evolutionDataRes] = await Promise.all([
+          objectifService.getObjectifsCommerciaux(filters),
+          objectifService.getTauxCompletionObjectifs(filters),
+          objectifService.getEvolutionObjectifsCA(filters.groupe_vendeur) // Evolution depends only on group
+        ]);
+
         setObjectifs(objectifsData);
-        
-        // Récupérer le taux de complétion des objectifs
-        const tauxCompletionData = await objectifService.getTauxCompletionObjectifs(filters);
         setTauxCompletion(tauxCompletionData);
-        
-        // Récupérer la projection du CA pour l'année en cours
-        if (selectedGroupeVendeur && selectedAnnee === new Date().getFullYear()) {
+        setEvolutionData(evolutionDataRes);
+
+        // Fetch projection only if a group is selected and it's the current year
+        if (selectedGroupeVendeur && selectedAnnee === currentYear) {
           const projectionData = await objectifService.getProjectionCA(selectedGroupeVendeur, selectedAnnee);
           setProjectionCA(projectionData[0]);
         } else {
           setProjectionCA(null);
         }
-        
-        // Récupérer l'évolution des objectifs et du CA
-        const evolutionData = await objectifService.getEvolutionObjectifsCA(selectedGroupeVendeur);
-        setEvolutionData(evolutionData);
-        
+
         setLoading(false);
       } catch (err) {
-        console.error('Erreur lors de la récupération des données:', err);
-        setError('Erreur lors de la récupération des données. Veuillez réessayer plus tard.');
+        console.error('Erreur données:', err);
+        setLoadingError('Erreur récupération données.');
         setLoading(false);
       }
     };
-    
-    if (annees.length > 0 && groupesVendeurs.length > 0) {
-      fetchData();
-    }
-  }, [selectedAnnee, selectedGroupeVendeur, annees, groupesVendeurs]);
-  
-  const handleAnneeChange = (e) => {
-    setSelectedAnnee(e.target.value === 'all' ? 'all' : parseInt(e.target.value));
+    fetchData();
+  }, [selectedAnnee, selectedGroupeVendeur]);
+
+  const handleFilterChange = (event) => {
+    const { name, value } = event.target;
+    if (name === 'annee') setSelectedAnnee(value);
+    if (name === 'groupe-vendeur') setSelectedGroupeVendeur(value);
   };
-  
-  const handleGroupeVendeurChange = (e) => {
-    setSelectedGroupeVendeur(e.target.value);
-  };
-  
-  // Calculer les KPIs
-  const getObjectifTotal = () => {
-    if (objectifs.length === 0) return 0;
-    return objectifs.reduce((acc, curr) => acc + curr.Objectif_Commercial, 0);
-  };
-  
-  const getCATotal = () => {
-    if (objectifs.length === 0) return 0;
-    return objectifs.reduce((acc, curr) => acc + curr.CA, 0);
-  };
-  
-  const getTauxCompletionMoyen = () => {
-    if (tauxCompletion.length === 0) return 0;
-    return (tauxCompletion.reduce((acc, curr) => acc + curr.Taux_Completion, 0) / tauxCompletion.length).toFixed(2);
-  };
-  
-  // Préparer les données pour les graphiques comparatifs
-  const prepareComparisonData = () => {
-    return objectifs.map(item => ({
-      Groupe_Vendeur: item.Groupe_Vendeur,
-      Objectif: item.Objectif_Commercial,
-      Realisation: item.CA
-    }));
-  };
-  
-  // Préparer les données pour le graphique d'évolution
-  const prepareEvolutionData = () => {
-    if (selectedGroupeVendeur) {
-      // Pour un groupe de vendeur spécifique
-      return evolutionData.map(item => ({
-        Annee: item.Annee.toString(),
-        Objectif: item.Objectif_Commercial,
-        CA: item.CA,
-        commercial: item.Nom_Commercial || `Commercial ${item.Groupe_Vendeur}`
-      }));
-    } else {
-      // Pour tous les groupes de vendeurs
-      return evolutionData.map(item => ({
-        Annee: item.Annee.toString(),
-        Objectif: item.Objectif_Total,
-        CA: item.CA_Total
-      }));
-    }
-  };
-  
-  // Calculer le taux de complétion global
-  const getTauxCompletionGlobal = () => {
-    const objectifTotal = getObjectifTotal();
-    const caTotal = getCATotal();
-    return objectifTotal !== 0 ? (caTotal / objectifTotal) * 100 : 0;
-  };
-  
-  // Trouver le meilleur et le pire groupe de vendeurs
-  const getBestWorstGroups = () => {
-    if (tauxCompletion.length === 0) return { best: null, worst: null };
-    
-    const sorted = [...tauxCompletion].sort((a, b) => b.Taux_Completion - a.Taux_Completion);
-    return {
-      best: sorted[0],
-      worst: sorted[sorted.length - 1]
-    };
-  };
-  
-  // Calculer la tendance d'évolution
-  const calculateEvolutionTrend = () => {
-    if (evolutionData.length < 2) return null;
-    
-    const lastTwoYears = evolutionData.slice(-2);
-    const previousYear = lastTwoYears[0];
-    const currentYear = lastTwoYears[1];
-    
-    // Calculer le taux de complétion pour les deux dernières années
-    const previousTaux = previousYear.CA / previousYear.Objectif_Commercial * 100;
-    const currentTaux = currentYear.CA / currentYear.Objectif_Commercial * 100;
-    
-    // Calculer la variation en pourcentage
-    const variation = currentTaux - previousTaux;
-    
-    return {
-      value: variation.toFixed(2),
-      isPositive: variation > 0,
-      previousYear: previousYear.Annee,
-      currentYear: currentYear.Annee
-    };
-  };
-  
-  const { best, worst } = getBestWorstGroups();
-  const evolutionTrend = calculateEvolutionTrend();
-  
-  if (loading && annees.length === 0) {
+
+  // --- Calculations (Memoized) ---
+  const objectifTotal = useMemo(() => objectifs.reduce((acc, curr) => acc + parseFloat(curr.Objectif_Commercial || 0), 0), [objectifs]);
+  const caTotal = useMemo(() => objectifs.reduce((acc, curr) => acc + parseFloat(curr.CA || 0), 0), [objectifs]);
+  const tauxCompletionMoyen = useMemo(() => {
+      if (tauxCompletion.length === 0) return 0;
+      const total = tauxCompletion.reduce((acc, curr) => acc + parseFloat(curr.Taux_Completion || 0), 0);
+      return (total / tauxCompletion.length).toFixed(2);
+  }, [tauxCompletion]);
+
+  const tauxCompletionGlobal = useMemo(() => objectifTotal !== 0 ? ((caTotal / objectifTotal) * 100).toFixed(2) : 0, [caTotal, objectifTotal]);
+
+  const comparisonData = useMemo(() => objectifs.map(item => ({
+    Groupe_Vendeur: item.Nom_Commercial || item.Groupe_Vendeur,
+    Objectif: parseFloat(item.Objectif_Commercial || 0),
+    Realisation: parseFloat(item.CA || 0)
+  })), [objectifs]);
+
+  const evolutionChartData = useMemo(() => evolutionData.map(item => ({
+    Annee: item.Annee.toString(),
+    Objectif: parseFloat(selectedGroupeVendeur ? item.Objectif_Commercial : item.Objectif_Total || 0),
+    CA: parseFloat(selectedGroupeVendeur ? item.CA : item.CA_Total || 0),
+  })), [evolutionData, selectedGroupeVendeur]);
+
+  const { best, worst } = useMemo(() => {
+      if (tauxCompletion.length === 0) return { best: null, worst: null };
+      const sorted = [...tauxCompletion].sort((a, b) => parseFloat(b.Taux_Completion || 0) - parseFloat(a.Taux_Completion || 0));
+      return {
+        best: sorted[0],
+        worst: sorted[sorted.length - 1]
+      };
+  }, [tauxCompletion]);
+
+  // --- Render Loading/Error ---
+  if (loading && !loadingError) {
     return (
       <Layout title="Objectifs">
-        <div className="loading">Chargement des données...</div>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+          <CircularProgress />
+        </Box>
       </Layout>
     );
   }
-  
-  if (error) {
+
+  const renderError = filterError || loadingError;
+  if (renderError) {
     return (
       <Layout title="Objectifs">
-        <div className="error">{error}</div>
+        <Alert severity="error" sx={{ margin: 2 }}>{renderError}</Alert>
       </Layout>
     );
   }
-  
+
+  // --- Render Page ---
   return (
     <Layout title="Objectifs">
-      <div className="filter-container">
-        <div className="filter-item">
-          <label htmlFor="annee">Année:</label>
-          <select id="annee" value={selectedAnnee} onChange={handleAnneeChange}>
-            <option value="all">Toutes les années</option>
-            {annees.map(annee => (
-              <option key={annee} value={annee}>{annee}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="filter-item">
-          <label htmlFor="groupe-vendeur">Groupe de vendeurs:</label>
-          <select id="groupe-vendeur" value={selectedGroupeVendeur} onChange={handleGroupeVendeurChange}>
-            <option value="">Tous les groupes</option>
-            {groupesVendeurs.map(groupe => (
-              <option key={groupe.Groupe_Vendeur} value={groupe.Groupe_Vendeur}>
-                {groupe.Nom_Commercial || `Commercial ${groupe.Groupe_Vendeur}`}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      
-      <div className="grid-container">
-        <KpiCard 
-          title="Objectif commercial total" 
-          value={getObjectifTotal().toLocaleString('fr-FR')} 
-          unit="€" 
-          icon={<TargetIcon />} 
-          color="#3498db" 
-        />
-        
-        <KpiCard 
-          title="CA total" 
-          value={getCATotal().toLocaleString('fr-FR')} 
-          unit="€" 
-          icon={<ChartIcon />} 
-          color="#2ecc71" 
-        />
-        
-        <KpiCard 
-          title="Taux de complétion moyen" 
-          value={getTauxCompletionMoyen()} 
-          unit="%" 
-          icon={<PercentIcon />} 
-          color="#e74c3c" 
-          trend={evolutionTrend ? parseFloat(evolutionTrend.value) : null}
-        />
-        
-        {/* KPI - Projection CA */}
-        <div className="kpi">
-          <div className="kpi-icon">
-            <ProjectionIcon />
-          </div>
-          <div className="kpi-content">
-            <h3>Projection CA {selectedAnnee}</h3>
-            <div className="kpi-value">
-              {projectionCA ? 
-                <div className="kpi-value-container">
-                  <div className="kpi-value-text">
-                    {projectionCA.Projection_CA ? projectionCA.Projection_CA.toLocaleString('fr-FR') : 'N/A'} €
-                  </div>
-                  <div className="kpi-subvalue">
-                    {projectionCA.Objectif_Commercial ? `Objectif: ${projectionCA.Objectif_Commercial.toLocaleString('fr-FR')} €` : 'Pas d\'objectif'}
-                  </div>
-                </div> 
-                : 'Données non disponibles'
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Graphique d'évolution des objectifs et du CA */}
-      <h2 className="section-title">Évolution des objectifs et du CA</h2>
-      <LineChart 
-        data={prepareEvolutionData()} 
-        xKey="Annee" 
-        yKey="CA" 
-        title={`Évolution des objectifs et du CA ${selectedGroupeVendeur ? 
-          `pour ${evolutionData.length > 0 ? evolutionData[0].Nom_Commercial || `Commercial ${selectedGroupeVendeur}` : selectedGroupeVendeur}` 
-          : 'pour tous les commerciaux'}`} 
-        color="#2ecc71"
-        secondaryData={prepareEvolutionData()}
-        secondaryKey="Objectif"
-        secondaryColor="#3498db"
-      />
-      
-      {/* Jauge de taux de complétion global */}
-      <div className="grid-container">
-        <div className="grid-item full-width">
-          <GaugeChart 
-            value={getTauxCompletionGlobal()} 
-            title={`Taux de complétion global des objectifs (${selectedAnnee === 'all' ? 'Toutes les années' : selectedAnnee})`} 
+      {/* Filtres */}
+      <Paper sx={{ padding: 2, marginBottom: 3 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel id="annee-label">Année</InputLabel>
+            <Select
+              labelId="annee-label"
+              id="annee-select"
+              value={selectedAnnee}
+              label="Année"
+              name="annee"
+              onChange={handleFilterChange}
+            >
+              <MenuItem value="all"><em>Toutes les années</em></MenuItem>
+              {annees.map(annee => (
+                <MenuItem key={annee} value={annee}>{annee}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel id="groupe-vendeur-label">Groupe Vendeur</InputLabel>
+            <Select
+              labelId="groupe-vendeur-label"
+              id="groupe-vendeur-select"
+              value={selectedGroupeVendeur}
+              label="Groupe Vendeur"
+              name="groupe-vendeur"
+              onChange={handleFilterChange}
+            >
+              <MenuItem value=""><em>Tous les groupes</em></MenuItem>
+              {groupesVendeurs.map(g => (
+                <MenuItem key={g.Groupe_Vendeur} value={g.Groupe_Vendeur}>
+                  {g.Nom_Commercial || `Groupe ${g.Groupe_Vendeur}`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
+      </Paper>
+
+      {/* KPIs & Projection */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="Objectif Total"
+            value={objectifTotal.toLocaleString('fr-FR')}
+            unit="€"
+            icon={<TrackChangesIcon fontSize="large" />}
+            color="#3498db"
           />
-        </div>
-      </div>
-      
-      {/* Graphique comparatif Objectifs vs Réalisations */}
-      <h2 className="section-title">Comparaison Objectifs vs Réalisations</h2>
-      <ComparisonChart 
-        data={prepareComparisonData()} 
-        xKey="Groupe_Vendeur" 
-        yKey1="Objectif" 
-        yKey2="Realisation" 
-        title={`Objectifs vs Réalisations par groupe de vendeurs (${selectedAnnee === 'all' ? 'Toutes les années' : selectedAnnee})`} 
-        label1="Objectif commercial" 
-        label2="CA réalisé" 
-      />
-      
-      {/* Taux de complétion des objectifs */}
-      <h2 className="section-title">Taux de complétion des objectifs</h2>
-      <BarChart 
-        data={tauxCompletion} 
-        xKey="Groupe_Vendeur" 
-        yKey="Taux_Completion" 
-        title={`Taux de complétion des objectifs (${selectedAnnee === 'all' ? 'Toutes les années' : selectedAnnee})`} 
-        color="#e74c3c" 
-      />
-      
-      {/* Meilleur et pire groupe de vendeurs */}
-      {best && worst && (
-        <div className="grid-container">
-          <div className="grid-item">
-            <div className="chart-container">
-              <h3 className="chart-title">Meilleure performance</h3>
-              <div className="best-worst-container">
-                <div className="best-group">
-                  <div className="group-name">{best.Nom_Commercial || `Commercial ${best.Groupe_Vendeur}`}</div>
-                  <div className="group-stats">
-                    <div className="stat-item">
-                      <div className="stat-label">Taux de complétion</div>
-                      <div className="stat-value">{best.Taux_Completion.toFixed(2)}%</div>
-                    </div>
-                    <div className="stat-item">
-                      <div className="stat-label">Objectif</div>
-                      <div className="stat-value">{best.Objectif_Commercial.toLocaleString('fr-FR')} €</div>
-                    </div>
-                    <div className="stat-item">
-                      <div className="stat-label">CA réalisé</div>
-                      <div className="stat-value">{best.CA.toLocaleString('fr-FR')} €</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="grid-item">
-            <div className="chart-container">
-              <h3 className="chart-title">Performance à améliorer</h3>
-              <div className="best-worst-container">
-                <div className="worst-group">
-                  <div className="group-name">{worst.Nom_Commercial || `Commercial ${worst.Groupe_Vendeur}`}</div>
-                  <div className="group-stats">
-                    <div className="stat-item">
-                      <div className="stat-label">Taux de complétion</div>
-                      <div className="stat-value">{worst.Taux_Completion.toFixed(2)}%</div>
-                    </div>
-                    <div className="stat-item">
-                      <div className="stat-label">Objectif</div>
-                      <div className="stat-value">{worst.Objectif_Commercial.toLocaleString('fr-FR')} €</div>
-                    </div>
-                    <div className="stat-item">
-                      <div className="stat-label">CA réalisé</div>
-                      <div className="stat-value">{worst.CA.toLocaleString('fr-FR')} €</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="CA Total Réalisé"
+            value={caTotal.toLocaleString('fr-FR')}
+            unit="€"
+            icon={<MonetizationOnIcon fontSize="large" />}
+            color="#2ecc71"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="Taux Compl. Global"
+            value={tauxCompletionGlobal}
+            unit="%"
+            icon={<CheckCircleIcon fontSize="large" />}
+            color="#e67e22"
+          />
+        </Grid>
+        {projectionCA && (
+          <Grid item xs={12} sm={6} md={3}>
+            <KpiCard
+              title={`Projection CA ${selectedAnnee}`}
+              value={parseFloat(projectionCA.Projection_CA || 0).toLocaleString('fr-FR')}
+              unit="€"
+              icon={<OnlinePredictionIcon fontSize="large" />}
+              color="#9b59b6"
+            />
+          </Grid>
+        )}
+      </Grid>
+
+      {/* Contenu Principal (Graphiques, Meilleur/Pire) */}
+      <Grid container spacing={3}>
+        {/* Graphique Comparaison Objectif/Réalisation */}
+        {comparisonData.length > 0 && !selectedGroupeVendeur && (
+            <Grid item xs={12} md={6}>
+                 <ComparisonChart
+                    data={comparisonData}
+                    xKey="Groupe_Vendeur"
+                    yKey1="Objectif"
+                    yKey2="Realisation"
+                    title={`Objectif vs Réalisation (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
+                    label1="Objectif (€)"
+                    label2="Réalisation (€)"
+                 />
+            </Grid>
+        )}
+
+         {/* Gauge Chart si un groupe est sélectionné */}
+        {selectedGroupeVendeur && tauxCompletion.length > 0 && (
+          <Grid item xs={12} md={6}>
+            <GaugeChart
+              value={parseFloat(tauxCompletion[0]?.Taux_Completion || 0)}
+              title={`Taux Completion - ${tauxCompletion[0]?.Nom_Commercial || selectedGroupeVendeur} (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
+              max={100}
+            />
+          </Grid>
+        )}
+
+        {/* Graphique Évolution Objectifs/CA */}
+        <Grid item xs={12} md={6}>
+          <LineChart
+            data={evolutionChartData}
+            xKey="Annee"
+            yKey="Objectif"
+            secondaryKey="CA"
+            title={`Évolution Objectifs vs CA ${selectedGroupeVendeur ? ('- ' + (groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur)) : '(Tous)'}`}
+            color="#e74c3c" // Objectif
+            secondaryColor="#2ecc71" // CA
+          />
+        </Grid>
+
+        {/* Meilleur et Pire Groupe (si aucun groupe spécifique n'est sélectionné) */}
+        {best && worst && !selectedGroupeVendeur && (
+          <Grid item xs={12}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                 <Card>
+                    <CardHeader title="Meilleur Groupe" sx={{ bgcolor: 'success.light', textAlign: 'center' }} titleTypographyProps={{ fontWeight: 'bold' }} />
+                    <CardContent>
+                       <Typography variant="h6" align="center" gutterBottom>{best.Nom_Commercial || `Groupe ${best.Groupe_Vendeur}`}</Typography>
+                       <Typography variant="h4" align="center" color="success.main">{parseFloat(best.Taux_Completion || 0).toFixed(2)}%</Typography>
+                       <Typography variant="body2" align="center" color="text.secondary">Taux de Completion</Typography>
+                    </CardContent>
+                 </Card>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                 <Card>
+                    <CardHeader title="Pire Groupe" sx={{ bgcolor: 'error.light', textAlign: 'center' }} titleTypographyProps={{ fontWeight: 'bold' }} />
+                    <CardContent>
+                       <Typography variant="h6" align="center" gutterBottom>{worst.Nom_Commercial || `Groupe ${worst.Groupe_Vendeur}`}</Typography>
+                       <Typography variant="h4" align="center" color="error.main">{parseFloat(worst.Taux_Completion || 0).toFixed(2)}%</Typography>
+                       <Typography variant="body2" align="center" color="text.secondary">Taux de Completion</Typography>
+                    </CardContent>
+                 </Card>
+              </Grid>
+            </Grid>
+          </Grid>
+        )}
+
+      </Grid>
     </Layout>
   );
 };

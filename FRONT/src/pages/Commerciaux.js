@@ -4,230 +4,258 @@ import BarChart from '../components/charts/BarChart';
 import KpiCard from '../components/KpiCard';
 import { commercialService } from '../services/api';
 
-// Icônes pour les KPIs
-import { ReactComponent as UserIcon } from '../assets/user-icon.svg';
-import { ReactComponent as TimeIcon } from '../assets/user-icon.svg'; // Utiliser la même icône en attendant
+// Importer les composants MUI
+import Grid from '@mui/material/Grid';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Typography from '@mui/material/Typography';
+
+// Importer les icônes MUI
+import PeopleAltIcon from '@mui/icons-material/PeopleAlt'; // Nombre Commerciaux
+import PercentIcon from '@mui/icons-material/Percent'; // Taux réussite
+import HourglassTopIcon from '@mui/icons-material/HourglassTop'; // Temps conversion
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'; // Nombre conversions
 
 const Commerciaux = () => {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  
+  const [loadingError, setLoadingError] = useState(null);
+  const [filterError, setFilterError] = useState(null);
+
   // États pour les filtres
   const [annees, setAnnees] = useState([]);
   const [commerciaux, setCommerciaux] = useState([]);
-  const [selectedAnnee, setSelectedAnnee] = useState(new Date().getFullYear());
+  const [selectedAnnee, setSelectedAnnee] = useState('');
   const [selectedCommercial, setSelectedCommercial] = useState('');
-  
+
   // États pour les données
   const [pourcentageCommandes, setPourcentageCommandes] = useState([]);
   const [tauxReussite, setTauxReussite] = useState([]);
   const [tempsConversion, setTempsConversion] = useState([]);
-  
+
   // Récupérer les années et commerciaux disponibles
   useEffect(() => {
     const fetchFilters = async () => {
       try {
-        // Pour simplifier, nous utilisons les données des commerciaux pour obtenir les années disponibles
-        const commerciauxData = await commercialService.getAvailableCommerciaux();
-        setCommerciaux(commerciauxData.map(item => ({
+        setFilterError(null);
+        const [commerciauxData, tauxReussiteAllYears] = await Promise.all([
+          commercialService.getAvailableCommerciaux(),
+          commercialService.getTauxReussiteCommercial({}) // Pour obtenir toutes les années
+        ]);
+
+        const commerciauxList = commerciauxData.map(item => ({
           id: item.Commercial,
           nom: item.Nom_Commercial || `Commercial ${item.Commercial}`
-        })));
-        
-        // Récupérer les données pour obtenir les années disponibles
-        const tauxReussiteData = await commercialService.getTauxReussiteCommercial({});
-        const years = [...new Set(tauxReussiteData.map(item => item.Annee))];
+        })).sort((a, b) => a.nom.localeCompare(b.nom));
+        setCommerciaux(commerciauxList);
+
+        const years = [...new Set(tauxReussiteAllYears.map(item => item.Annee))].sort((a, b) => b - a);
         setAnnees(years);
-        
-        // Définir l'année la plus récente comme valeur par défaut
+
         if (years.length > 0) {
-          const latestYear = Math.max(...years);
-          setSelectedAnnee(latestYear);
+          setSelectedAnnee(years[0]);
+        } else {
+          setSelectedAnnee('all');
         }
       } catch (err) {
         console.error('Erreur lors de la récupération des filtres:', err);
-        setError('Erreur lors de la récupération des filtres. Veuillez réessayer plus tard.');
+        setFilterError('Erreur lors de la récupération des options de filtre.');
       }
     };
-    
     fetchFilters();
   }, []);
-  
+
   // Récupérer les données en fonction des filtres
   useEffect(() => {
+    if (!selectedAnnee) return;
+
     const fetchData = async () => {
       try {
         setLoading(true);
-        
-        // Récupérer le pourcentage de commandes par commercial
-        const filters = { annee: selectedAnnee };
-        if (selectedCommercial) {
-          filters.commercial = selectedCommercial;
-        }
-        const pourcentageCommandesData = await commercialService.getPourcentageCommandesCommercial(filters);
-        setPourcentageCommandes(pourcentageCommandesData);
-        
-        // Récupérer le taux de réussite des commerciaux
-        const tauxReussiteData = await commercialService.getTauxReussiteCommercial(filters);
+        setLoadingError(null);
+
+        const filters = {
+          annee: selectedAnnee !== 'all' ? selectedAnnee : undefined,
+          commercial: selectedCommercial || undefined,
+        };
+
+        const [pourcentageData, tauxReussiteData, tempsConversionData] = await Promise.all([
+          commercialService.getPourcentageCommandesCommercial(filters),
+          commercialService.getTauxReussiteCommercial(filters),
+          commercialService.getTempsConversion(filters)
+        ]);
+
+        setPourcentageCommandes(pourcentageData);
         setTauxReussite(tauxReussiteData);
-        
-        // Récupérer les temps de conversion des commerciaux
-        const tempsConversionData = await commercialService.getTempsConversion(filters);
         setTempsConversion(tempsConversionData);
-        
+
         setLoading(false);
       } catch (err) {
         console.error('Erreur lors de la récupération des données:', err);
-        setError('Erreur lors de la récupération des données. Veuillez réessayer plus tard.');
+        setLoadingError('Erreur lors de la récupération des données. Veuillez réessayer plus tard.');
         setLoading(false);
       }
     };
-    
-    if (annees.length > 0) {
-      fetchData();
-    }
-  }, [selectedAnnee, selectedCommercial, annees]);
-  
-  const handleAnneeChange = (e) => {
-    setSelectedAnnee(e.target.value === 'all' ? 'all' : parseInt(e.target.value));
+    fetchData();
+  }, [selectedAnnee, selectedCommercial]);
+
+  const handleFilterChange = (event) => {
+    const { name, value } = event.target;
+    if (name === 'annee') setSelectedAnnee(value);
+    if (name === 'commercial') setSelectedCommercial(value);
   };
-  
-  const handleCommercialChange = (e) => {
-    setSelectedCommercial(e.target.value);
-  };
-  
+
   // Calculer les KPIs
-  const getTauxReussiteMoyen = () => {
-    if (tauxReussite.length === 0) return 0;
-    return (tauxReussite.reduce((acc, curr) => acc + curr.Taux_Reussite, 0) / tauxReussite.length).toFixed(2);
-  };
-  
-  const getNombreOffresTotal = () => {
-    if (pourcentageCommandes.length === 0) return 0;
-    return pourcentageCommandes.reduce((acc, curr) => acc + curr.Nombre_Offres, 0);
-  };
-  
-  const getNombreCommandesTotal = () => {
-    if (pourcentageCommandes.length === 0) return 0;
-    return pourcentageCommandes.reduce((acc, curr) => acc + curr.Nombre_Commandes, 0);
-  };
-  
-  const getTempsConversionMoyen = () => {
-    if (tempsConversion.length === 0) return 0;
-    return (tempsConversion.reduce((acc, curr) => acc + curr.Temps_Moyen_Conversion, 0) / tempsConversion.length).toFixed(1);
-  };
-  
-  const getNombreConversionsTotal = () => {
-    if (tempsConversion.length === 0) return 0;
-    return tempsConversion.reduce((acc, curr) => acc + curr.Nombre_Conversions, 0);
-  };
-  
-  if (loading && annees.length === 0) {
+  const tauxReussiteMoyen = tauxReussite.length === 0 ? 0 : (tauxReussite.reduce((acc, curr) => acc + parseFloat(curr.Taux_Reussite || 0), 0) / tauxReussite.length).toFixed(2);
+  const tempsConversionMoyen = tempsConversion.length === 0 ? 0 : (tempsConversion.reduce((acc, curr) => acc + parseFloat(curr.Temps_Moyen_Conversion || 0), 0) / tempsConversion.length).toFixed(1);
+  const nombreConversionsTotal = tempsConversion.reduce((acc, curr) => acc + parseInt(curr.Nombre_Conversions || 0), 0);
+  const nombreCommerciauxFiltres = new Set(pourcentageCommandes.map(c => c.Commercial)).size; // Compter les commerciaux uniques dans les données filtrées
+
+  // Rendu Chargement
+  if (loading && !loadingError) {
     return (
       <Layout title="Commerciaux">
-        <div className="loading">Chargement des données...</div>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+          <CircularProgress />
+        </Box>
       </Layout>
     );
   }
-  
-  if (error) {
+
+  // Rendu Erreur
+  const renderError = filterError || loadingError;
+  if (renderError) {
     return (
       <Layout title="Commerciaux">
-        <div className="error">{error}</div>
+        <Alert severity="error" sx={{ margin: 2 }}>{renderError}</Alert>
       </Layout>
     );
   }
-  
+
   return (
     <Layout title="Commerciaux">
-      <div className="filter-container">
-        <div className="filter-item">
-          <label htmlFor="annee">Année:</label>
-          <select id="annee" value={selectedAnnee} onChange={handleAnneeChange}>
-            <option value="all">Toutes les années</option>
-            {annees.map(annee => (
-              <option key={annee} value={annee}>{annee}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="filter-item">
-          <label htmlFor="commercial">Commercial:</label>
-          <select id="commercial" value={selectedCommercial} onChange={handleCommercialChange}>
-            <option value="">Tous les commerciaux</option>
-            {commerciaux.map(commercial => (
-              <option key={commercial.id} value={commercial.id}>{commercial.nom}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      
-      <div className="grid-container">
-        <KpiCard 
-          title="Nombre de commerciaux" 
-          value={pourcentageCommandes.length} 
-          icon={<UserIcon />} 
-          color="#3498db" 
-        />
-        
-        <KpiCard 
-          title="Taux de réussite moyen" 
-          value={getTauxReussiteMoyen()} 
-          unit="%" 
-          icon={<UserIcon />} 
-          color="#2ecc71" 
-        />
-        
-        <KpiCard 
-          title="Temps de conversion moyen" 
-          value={getTempsConversionMoyen()} 
-          unit="jours" 
-          icon={<TimeIcon />} 
-          color="#9b59b6" 
-        />
-        
-        <KpiCard 
-          title="Nombre de conversions total" 
-          value={getNombreConversionsTotal()} 
-          icon={<UserIcon />} 
-          color="#f39c12" 
-        />
-      </div>
-      
-      <h2 className="section-title">Pourcentage de commandes par commercial</h2>
-      <BarChart 
-        data={pourcentageCommandes} 
-        xKey="Nom_Commercial" 
-        yKey="Pourcentage_Commandes" 
-        title={`Pourcentage de commandes par commercial (${selectedAnnee === 'all' ? 'Toutes les années' : selectedAnnee})`} 
-      />
-      
-      <h2 className="section-title">Taux de réussite par commercial</h2>
-      <BarChart 
-        data={tauxReussite} 
-        xKey="Nom_Commercial" 
-        yKey="Taux_Reussite" 
-        title={`Taux de réussite par commercial (${selectedAnnee === 'all' ? 'Toutes les années' : selectedAnnee})`} 
-        color="#2ecc71" 
-      />
-      
-      <h2 className="section-title">Temps moyen de conversion par commercial</h2>
-      <BarChart 
-        data={tempsConversion} 
-        xKey="Nom_Commercial" 
-        yKey="Temps_Moyen_Conversion" 
-        title={`Temps moyen de conversion par commercial (jours)`} 
-        color="#9b59b6" 
-      />
-      
-      <h2 className="section-title">Nombre de conversions par commercial</h2>
-      <BarChart 
-        data={tempsConversion} 
-        xKey="Nom_Commercial" 
-        yKey="Nombre_Conversions" 
-        title={`Nombre de conversions par commercial`} 
-        color="#f39c12" 
-      />
+      {/* Filtres */}
+      <Paper sx={{ padding: 2, marginBottom: 3 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel id="annee-label">Année</InputLabel>
+            <Select
+              labelId="annee-label"
+              id="annee-select"
+              value={selectedAnnee}
+              label="Année"
+              name="annee"
+              onChange={handleFilterChange}
+            >
+              <MenuItem value="all"><em>Toutes les années</em></MenuItem>
+              {annees.map(annee => (
+                <MenuItem key={annee} value={annee}>{annee}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel id="commercial-label">Commercial</InputLabel>
+            <Select
+              labelId="commercial-label"
+              id="commercial-select"
+              value={selectedCommercial}
+              label="Commercial"
+              name="commercial"
+              onChange={handleFilterChange}
+            >
+              <MenuItem value=""><em>Tous les commerciaux</em></MenuItem>
+              {commerciaux.map(c => (
+                <MenuItem key={c.id} value={c.id}>{c.nom}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
+      </Paper>
+
+      {/* KPIs */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="Nombre Commerciaux (Filt.)"
+            value={nombreCommerciauxFiltres}
+            icon={<PeopleAltIcon fontSize="large" />}
+            color="#3498db"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="Taux Réussite Moyen"
+            value={tauxReussiteMoyen}
+            unit="%"
+            icon={<PercentIcon fontSize="large" />}
+            color="#2ecc71"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="Temps Conv. Moyen"
+            value={tempsConversionMoyen}
+            unit="jours"
+            icon={<HourglassTopIcon fontSize="large" />}
+            color="#9b59b6"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <KpiCard
+            title="Nombre Conv. Total"
+            value={nombreConversionsTotal}
+            icon={<CheckCircleOutlineIcon fontSize="large" />}
+            color="#f39c12"
+          />
+        </Grid>
+      </Grid>
+
+      {/* Graphiques */}
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <BarChart
+            data={pourcentageCommandes}
+            xKey="Nom_Commercial"
+            yKey="Pourcentage_Commandes"
+            title={`% Commandes (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
+            color="#3498db"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <BarChart
+            data={tauxReussite}
+            xKey="Nom_Commercial"
+            yKey="Taux_Reussite"
+            title={`Taux Réussite (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
+            color="#2ecc71"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <BarChart
+            data={tempsConversion}
+            xKey="Nom_Commercial"
+            yKey="Temps_Moyen_Conversion"
+            title={`Temps Conv. Moyen (jours) (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
+            color="#9b59b6"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <BarChart
+            data={tempsConversion} // Utilise les mêmes données que le temps moyen
+            xKey="Nom_Commercial"
+            yKey="Nombre_Conversions"
+            title={`Nombre Conversions (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
+            color="#f39c12"
+          />
+        </Grid>
+      </Grid>
     </Layout>
   );
 };
