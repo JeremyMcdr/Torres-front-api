@@ -4,6 +4,8 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { getAppTheme } from './theme'; // Import the theme generating function
+import { FocusChartProvider } from './context/FocusChartContext'; // Import the provider
+import ChartFocusDialog from './components/dialogs/ChartFocusDialog'; // Import the dialog
 
 import './App.css';
 
@@ -25,15 +27,18 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline /> {/* Apply baseline styles and background color from the theme */}
-      <Router>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/chiffre-affaires" element={<ChiffreAffaires />} />
-          <Route path="/commerciaux" element={<Commerciaux />} />
-          <Route path="/objectifs" element={<Objectifs />} />
-          <Route path="/motifs" element={<Motifs />} />
-        </Routes>
-      </Router>
+      <FocusChartProvider> {/* Wrap Router with the provider */}
+        <Router>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/chiffre-affaires" element={<ChiffreAffaires />} />
+            <Route path="/commerciaux" element={<Commerciaux />} />
+            <Route path="/objectifs" element={<Objectifs />} />
+            <Route path="/motifs" element={<Motifs />} />
+          </Routes>
+        </Router>
+        <ChartFocusDialog /> {/* Render the dialog here */}
+      </FocusChartProvider>
     </ThemeProvider>
   );
 }

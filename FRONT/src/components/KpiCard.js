@@ -1,71 +1,45 @@
 import React from 'react';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import Typography from '@mui/material/Typography';
-import Box from '@mui/material/Box';
-import Stack from '@mui/material/Stack';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import { Card, CardContent, Typography, Box, Avatar } from '@mui/material';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 
-const KpiCard = ({ title, value, icon, color = 'primary.main', unit = '', trend = null }) => {
-  const trendColor = trend > 0 ? 'success.main' : trend < 0 ? 'error.main' : 'text.secondary';
-  const TrendIcon = trend > 0 ? ArrowUpwardIcon : trend < 0 ? ArrowDownwardIcon : null;
+const KpiCard = ({ title, value, trend, icon }) => {
+    const getBorderColor = () => {
+        if (trend === 'up') {
+            return 'success.main';
+        } else if (trend === 'down') {
+            return 'error.main';
+        }
+        return 'grey.500';
+    };
 
-  return (
-    <Card sx={{ display: 'flex', alignItems: 'center', p: 1.5, borderTop: `4px solid ${color}` }}>
-      {/* Icon Box */}
-      {icon && (
-        <Box
-          sx={{
-            bgcolor: color,
-            minWidth: 50,
-            height: 50,
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            mr: 2,
-            color: 'common.white', // Ensure icon is visible on colored background
-            flexShrink: 0,
-          }}
-        >
-          {icon}
-        </Box>
-      )}
+    const TrendIcon = () => {
+        if (trend === 'up') {
+            return <TrendingUpIcon sx={{ color: 'success.main' }} />;
+        } else if (trend === 'down') {
+            return <TrendingDownIcon sx={{ color: 'error.main' }} />;
+        }
+        return null;
+    };
 
-      {/* Content Area */}
-      <Box sx={{ flexGrow: 1 }}>
-        <CardContent sx={{ p: '0 !important' }}> {/* Remove CardContent default padding */}
-          {/* Title */}
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            {title}
-          </Typography>
-
-          {/* Value and Unit */}
-          <Stack direction="row" alignItems="baseline" spacing={0.5}>
-            <Typography variant="h5" component="div" sx={{ fontWeight: 600 }}>
-              {value}
-            </Typography>
-            {unit && (
-              <Typography variant="caption" color="text.secondary">
-                {unit}
-              </Typography>
-            )}
-          </Stack>
-
-          {/* Trend */}
-          {trend !== null && TrendIcon && (
-            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: trendColor, mt: 0.5 }}>
-              <TrendIcon sx={{ fontSize: '1rem' }} />
-              <Typography variant="caption" sx={{ fontWeight: 500 }}>
-                {Math.abs(trend)}%
-              </Typography>
-            </Stack>
-          )}
-        </CardContent>
-      </Box>
-    </Card>
-  );
+    return (
+        <Card sx={{ borderTop: `4px solid ${getBorderColor()}`, display: 'flex', alignItems: 'center', p: 2 }}>
+            <Avatar sx={{ bgcolor: 'primary.light', mr: 2 }}>
+                <img src={icon} alt={`${title} icon`} style={{ width: '24px', height: '24px' }} />
+            </Avatar>
+            <Box sx={{ flexGrow: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                    {title}
+                </Typography>
+                <Typography variant="h5" component="div">
+                    {value}
+                </Typography>
+            </Box>
+            <Box sx={{ ml: 1 }}>
+                <TrendIcon />
+            </Box>
+        </Card>
+    );
 };
 
 export default KpiCard; 

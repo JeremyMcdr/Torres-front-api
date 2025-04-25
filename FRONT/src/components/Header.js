@@ -18,10 +18,11 @@ const Header = ({ title }) => {
         width: `calc(100% - ${drawerWidth}px)`, // Account for drawer width
         ml: `${drawerWidth}px`, // Margin to offset for the drawer
         // Apply backdrop blur and semi-transparent background
-        backdropFilter: 'blur(10px)',
-        backgroundColor: theme.palette.mode === 'light' 
-          ? 'rgba(255, 255, 255, 0.7)' 
-          : 'rgba(30, 30, 30, 0.7)', // Adjust dark background transparency
+        backdropFilter: 'blur(12px)', // Slightly increased blur
+        // Subtle gradient background overlaying the blur
+        background: theme.palette.mode === 'light'
+          ? 'linear-gradient(to bottom, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.7))'
+          : 'linear-gradient(to bottom, rgba(30, 30, 30, 0.85), rgba(30, 30, 30, 0.7))', // Dark mode gradient
         // Add a subtle bottom border instead of shadow
         borderBottom: `1px solid ${theme.palette.divider}`,
         boxShadow: 'none', // Ensure no shadow
