@@ -4,6 +4,7 @@ import BarChart from '../components/charts/BarChart';
 import KpiCard from '../components/KpiCard';
 import { commercialService } from '../services/api';
 import { useFocusChart } from '../context/FocusChartContext';
+import { useAppData } from '../context/AppDataContext';
 
 // Importer les composants MUI
 import Grid from '@mui/material/Grid';
@@ -25,90 +26,63 @@ import HourglassTopIcon from '@mui/icons-material/HourglassTop'; // Temps conver
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'; // Nombre conversions
 
 const Commerciaux = () => {
-  const [loading, setLoading] = useState(true);
-  const [loadingError, setLoadingError] = useState(null);
-  const [filterError, setFilterError] = useState(null);
+  // Use App Data Context for filter options
+  const { appData } = useAppData();
+  // Note: `commerciaux` in context has {id, nom} structure
+  const { annees, commerciaux } = appData;
 
-  // États pour les filtres
-  const [annees, setAnnees] = useState([]);
-  const [commerciaux, setCommerciaux] = useState([]);
+  // State for page-specific data loading/error
+  const [loadingData, setLoadingData] = useState(true);
+  const [dataError, setDataError] = useState(null);
+
+  // State for selected filter values
   const [selectedAnnee, setSelectedAnnee] = useState('');
-  const [selectedCommercial, setSelectedCommercial] = useState('');
+  const [selectedCommercial, setSelectedCommercial] = useState(''); // Default to 'Tous'
 
-  // États pour les données
+  // State for page-specific data
   const [pourcentageCommandes, setPourcentageCommandes] = useState([]);
   const [tauxReussite, setTauxReussite] = useState([]);
-  const [tempsConversion, setTempsConversion] = useState([]);
+  const [tempsConversion, setTempsConversion] = useState([]); // Contains Nombre_Conversions too
 
-  // Get context functions and state
+  // Focus Chart Context hook
   const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
 
-  // Récupérer les années et commerciaux disponibles
+  // Effect to set the initial selected year once annees are loaded
   useEffect(() => {
-    const fetchFilters = async () => {
-      try {
-        setFilterError(null);
-        const [commerciauxData, tauxReussiteAllYears] = await Promise.all([
-          commercialService.getAvailableCommerciaux(),
-          commercialService.getTauxReussiteCommercial({}) // Pour obtenir toutes les années
-        ]);
+    if (annees && annees.length > 0 && !selectedAnnee) {
+      setSelectedAnnee(annees[0] || 'all'); // Default to most recent or 'all'
+    }
+  }, [annees, selectedAnnee]);
 
-        const commerciauxList = commerciauxData.map(item => ({
-          id: item.Commercial,
-          nom: item.Nom_Commercial || `Commercial ${item.Commercial}`
-        })).sort((a, b) => a.nom.localeCompare(b.nom));
-        setCommerciaux(commerciauxList);
-
-        const years = [...new Set(tauxReussiteAllYears.map(item => item.Annee))].sort((a, b) => b - a);
-        setAnnees(years);
-
-        if (years.length > 0) {
-          setSelectedAnnee(years[0]);
-        } else {
-          const currentYear = new Date().getFullYear();
-          setSelectedAnnee(currentYear);
-          setAnnees([currentYear]);
-          console.warn('Aucune année avec des données commerciales trouvée, utilisation de l\'année en cours.')
-        }
-      } catch (err) {
-        console.error('Erreur lors de la récupération des filtres:', err);
-        setFilterError('Erreur lors de la récupération des options de filtre.');
-      }
-    };
-    fetchFilters();
-  }, []);
-
-  // Récupérer les données en fonction des filtres
+  // Fetch Data useEffect (depends on selected filters)
   useEffect(() => {
-    if (!selectedAnnee) return;
+    if (!selectedAnnee) return; // Wait for year selection
 
     const fetchData = async () => {
       try {
-        setLoading(true);
-        setLoadingError(null);
+        setLoadingData(true);
+        setDataError(null);
 
         const filters = {
           annee: selectedAnnee !== 'all' ? selectedAnnee : undefined,
           commercial: selectedCommercial || undefined,
         };
 
-        // Fetch data, removing getNombreConversions call
         const [pourcentageData, tauxReussiteData, tempsConversionData] = await Promise.all([
           commercialService.getPourcentageCommandesCommercial(filters),
           commercialService.getTauxReussiteCommercial(filters),
-          commercialService.getTempsConversion(filters)
-          // Removed: commercialService.getNombreConversions(filters)
+          commercialService.getTempsConversion(filters),
         ]);
 
         // Update local state
         setPourcentageCommandes(pourcentageData);
         setTauxReussite(tauxReussiteData);
         setTempsConversion(tempsConversionData);
-        // Removed: setNombreConversions(nbConversionsData);
 
-         // Update focused chart data if dialog is open
+        // Update focused chart data (logic remains the same, uses fetched data)
         if (isOpen && focusedChartInfo) {
-            console.log("Commerciaux: Checking if focused chart needs update. ID:", focusedChartInfo.id);
+             // ... existing update logic ...
+              console.log("Commerciaux: Checking if focused chart needs update. ID:", focusedChartInfo.id);
             switch (focusedChartInfo.id) {
                 case 'commerciaux-pct-commandes':
                     updateFocusedChartData('commerciaux-pct-commandes', pourcentageData);
@@ -120,7 +94,6 @@ const Commerciaux = () => {
                     updateFocusedChartData('commerciaux-temps-conversion', tempsConversionData);
                     break;
                 case 'commerciaux-nb-conversions':
-                    // Update this chart using tempsConversionData
                     updateFocusedChartData('commerciaux-nb-conversions', tempsConversionData);
                     break;
                 default:
@@ -128,43 +101,49 @@ const Commerciaux = () => {
             }
         }
 
-        setLoading(false);
       } catch (err) {
-        // Log the specific error for debugging
-        console.error('Erreur lors de la récupération des données dans Commerciaux.js:', err);
-        setLoadingError(`Erreur lors de la récupération des données: ${err.message || 'Veuillez réessayer plus tard.'}`);
-        setLoading(false);
+        console.error('Erreur données Commerciaux:', err);
+        setDataError(`Erreur lors de la récupération des données Commerciaux: ${err.message || 'Veuillez réessayer plus tard.'}`);
+      } finally {
+        setLoadingData(false);
       }
     };
     fetchData();
   }, [selectedAnnee, selectedCommercial, isOpen, focusedChartInfo, updateFocusedChartData]);
 
-  // Use useCallback for stability
+  // Filter Change Handler (useCallback remains the same)
   const handleFilterChange = useCallback((event) => {
+    // ... existing handler logic ...
     const { name, value } = event.target;
     if (name === 'annee') setSelectedAnnee(value);
     if (name === 'commercial') setSelectedCommercial(value);
-  }, []); // Dependencies only setters
+  }, []);
 
-  // Calculer les KPIs (useMemo for derived values)
+  // KPI Calculations useMemo (definitions remain the same)
   const tauxReussiteMoyen = useMemo(() => tauxReussite.length === 0 ? 0 : (tauxReussite.reduce((acc, curr) => acc + parseFloat(curr.Taux_Reussite || 0), 0) / tauxReussite.length).toFixed(2), [tauxReussite]);
   const tempsConversionMoyen = useMemo(() => tempsConversion.length === 0 ? 0 : (tempsConversion.reduce((acc, curr) => acc + parseFloat(curr.Temps_Moyen_Conversion || 0), 0) / tempsConversion.length).toFixed(1), [tempsConversion]);
-  // Calculate total conversions from tempsConversion data
   const nombreConversionsTotal = useMemo(() => tempsConversion.reduce((acc, curr) => acc + parseInt(curr.Nombre_Conversions || 0), 0), [tempsConversion]);
   const nombreCommerciauxFiltres = useMemo(() => new Set(pourcentageCommandes.map(c => c.Commercial)).size, [pourcentageCommandes]);
 
-  // Filter Definition for Dialogs
+  // Filter Definition for Dialogs (uses context data `annees` and `commerciaux`)
   const commerciauxFilterDefinition = useMemo(() => ({
       config: [
           { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
-          { id: 'commercial', label: 'Commercial', options: commerciaux.map(c => ({ value: c.id, label: c.nom })), value: selectedCommercial }
+          // Use the {id, nom} structure from context
+          { id: 'commercial', label: 'Commercial', options: commerciaux, value: selectedCommercial }
       ],
       onChange: handleFilterChange
+      // Map options directly if context provides {value, label} structure later
+      // options: commerciaux.map(c => ({ value: c.id, label: c.nom }))
   }), [annees, selectedAnnee, commerciaux, selectedCommercial, handleFilterChange]);
 
-  // Rendu Chargement
-  if (loading && !loadingError) {
-    return (
+  // --- Render Logic ---
+  const showLoading = loadingData;
+  const displayError = dataError;
+
+  if (showLoading) {
+     // ... loading JSX ...
+       return (
       <Layout title="Commerciaux">
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
           <CircularProgress />
@@ -173,22 +152,22 @@ const Commerciaux = () => {
     );
   }
 
-  // Rendu Erreur
-  const renderError = filterError || loadingError;
-  if (renderError) {
-    return (
+  if (displayError) {
+    // ... error JSX ...
+      return (
       <Layout title="Commerciaux">
-        <Alert severity="error" sx={{ margin: 2 }}>{renderError}</Alert>
+        <Alert severity="error" sx={{ margin: 2 }}>{displayError}</Alert>
       </Layout>
     );
   }
 
   return (
     <Layout title="Commerciaux">
-      {/* Filtres */}
+      {/* Filtres (uses context data `annees` and `commerciaux`) */}
       <Paper sx={{ padding: 2, marginBottom: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <FormControl sx={{ minWidth: 200 }}>
+          {/* Annee Filter */}
+          <FormControl sx={{ minWidth: 200 }} disabled={!annees || annees.length === 0 || loadingData}>
             <InputLabel id="annee-label">Année</InputLabel>
             <Select
               labelId="annee-label"
@@ -197,16 +176,16 @@ const Commerciaux = () => {
               label="Année"
               name="annee"
               onChange={handleFilterChange}
-              disabled={loading}
             >
               <MenuItem value="all"><em>Toutes les années</em></MenuItem>
+              {/* Map over `annees` from context */}
               {annees.map(annee => (
                 <MenuItem key={annee} value={annee}>{annee}</MenuItem>
               ))}
             </Select>
           </FormControl>
-
-          <FormControl sx={{ minWidth: 200 }}>
+          {/* Commercial Filter */}
+          <FormControl sx={{ minWidth: 200 }} disabled={!commerciaux || commerciaux.length === 0 || loadingData}>
             <InputLabel id="commercial-label">Commercial</InputLabel>
             <Select
               labelId="commercial-label"
@@ -215,10 +194,11 @@ const Commerciaux = () => {
               label="Commercial"
               name="commercial"
               onChange={handleFilterChange}
-              disabled={loading}
             >
               <MenuItem value=""><em>Tous les commerciaux</em></MenuItem>
+              {/* Map over `commerciaux` from context */}
               {commerciaux.map(c => (
+                // Use id and nom from the context data structure
                 <MenuItem key={c.id} value={c.id}>{c.nom}</MenuItem>
               ))}
             </Select>
@@ -226,7 +206,7 @@ const Commerciaux = () => {
         </Stack>
       </Paper>
 
-      {/* KPIs */}
+      {/* KPIs (logic remains the same) */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
           <KpiCard
@@ -264,7 +244,7 @@ const Commerciaux = () => {
         </Grid>
       </Grid>
 
-      {/* Graphiques (Wrapped in clickable Box) */}
+      {/* Graphiques (use updated filter definition) */}
       <Grid container spacing={3}>
         {/* % Commandes */}
         <Grid item xs={12} md={6}>
@@ -279,7 +259,7 @@ const Commerciaux = () => {
                         title: chartTitle,
                         chartProps: chartProps,
                         chartData: pourcentageCommandes,
-                        filterDefinition: commerciauxFilterDefinition
+                        filterDefinition: commerciauxFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -302,7 +282,7 @@ const Commerciaux = () => {
                         title: chartTitle,
                         chartProps: chartProps,
                         chartData: tauxReussite,
-                        filterDefinition: commerciauxFilterDefinition
+                        filterDefinition: commerciauxFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -325,7 +305,7 @@ const Commerciaux = () => {
                         title: chartTitle,
                         chartProps: chartProps,
                         chartData: tempsConversion,
-                        filterDefinition: commerciauxFilterDefinition
+                        filterDefinition: commerciauxFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -348,7 +328,7 @@ const Commerciaux = () => {
                         title: chartTitle,
                         chartProps: chartProps,
                         chartData: tempsConversion,
-                        filterDefinition: commerciauxFilterDefinition
+                        filterDefinition: commerciauxFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                  >

@@ -7,6 +7,8 @@ import PieChart from '../components/charts/PieChart';
 import { caService, commercialService, motifService, objectifService } from '../services/api';
 // Import useFocusChart
 import { useFocusChart } from '../context/FocusChartContext';
+// Import useAppData
+import { useAppData } from '../context/AppDataContext';
 
 // Importer les composants MUI
 import Grid from '@mui/material/Grid';
@@ -28,57 +30,46 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp'; // Pour Taux de ré
 import AssignmentIcon from '@mui/icons-material/Assignment'; // Pour Motifs
 
 const Dashboard = () => {
-  const [loading, setLoading] = useState(true);
-  const [loadingError, setLoadingError] = useState(null);
-  const [filterError, setFilterError] = useState(null);
+  // Use App Data Context
+  const { appData } = useAppData();
+  const { annees } = appData; // Destructure pre-loaded filter options
 
-  // --- State for Filters ---
-  const [annees, setAnnees] = useState([]);
+  // State for page-specific data and loading/error
+  const [loadingData, setLoadingData] = useState(true); // Renamed from loading
+  const [dataError, setDataError] = useState(null); // Renamed from loadingError
+
+  // State for selected filter value - Initialize AFTER checking annees
   const [selectedAnnee, setSelectedAnnee] = useState('');
 
-  // États pour les données
+  // États pour les données spécifiques à la page
   const [caTotal, setCATotal] = useState(0);
   const [caParPays, setCAParPays] = useState([]);
   const [tauxReussiteCommerciaux, setTauxReussiteCommerciaux] = useState([]);
   const [motifs, setMotifs] = useState([]);
   const [tauxCompletionObjectifs, setTauxCompletionObjectifs] = useState([]);
 
-  // Get context functions and state
+  // Focus Chart Context hook
   const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
 
-  // --- Fetch Available Years Filter ---
-  useEffect(() => {
-    const fetchFilterOptions = async () => {
-      try {
-        setFilterError(null);
-        const yearsData = await caService.getAvailableYears();
-        const yearOptions = yearsData.map(item => item.Annee).sort((a, b) => b - a);
-        setAnnees(yearOptions);
+  // --- REMOVED: useEffect to fetch available years --- 
+  // Data is now pre-loaded via AppDataContext
 
-        if (yearOptions.length > 0) {
-          setSelectedAnnee(yearOptions[0]);
-        } else {
-          const currentYear = new Date().getFullYear();
-          setSelectedAnnee(currentYear); // Fallback to current year
-          setAnnees([currentYear]); // Add current year to options if API returns none
-          setFilterError('Aucune donnée disponible pour les années précédentes, affichage de l\'année en cours.'); // Informative message
-        }
-      } catch (err) {
-        console.error('Erreur récupération années filtre:', err);
-        setFilterError('Erreur récupération années filtre.');
-      }
-    };
-    fetchFilterOptions();
-  }, []);
-
-  // --- Fetch Data Based on Selected Year ---
+  // Effect to set the initial selected year once annees are loaded
   useEffect(() => {
+    if (annees && annees.length > 0 && !selectedAnnee) {
+      setSelectedAnnee(annees[0]); // Default to the most recent year
+    }
+  }, [annees, selectedAnnee]); // Run when annees load or selectedAnnee changes (to prevent resetting)
+
+  // --- Fetch Data Based on Selected Year (useEffect remains similar) ---
+  useEffect(() => {
+    // Only fetch if a year is selected
     if (!selectedAnnee) return;
 
     const fetchData = async () => {
       try {
-        setLoading(true);
-        setLoadingError(null);
+        setLoadingData(true);
+        setDataError(null);
 
         const filters = { annee: selectedAnnee };
 
@@ -90,13 +81,14 @@ const Dashboard = () => {
           objectifService.getTauxCompletionObjectifs(filters)
         ]);
 
+        // Update local state
         setCATotal(caTotalData[0]?.CA_Total || 0);
         setCAParPays(caParPaysData);
         setTauxReussiteCommerciaux(tauxReussiteData);
         setMotifs(motifsData);
         setTauxCompletionObjectifs(tauxCompletionData);
 
-        // Update focused chart data if dialog is open
+        // Update focused chart data (logic remains the same)
         if (isOpen && focusedChartInfo) {
           console.log("Dashboard: Checking if focused chart needs update. ID:", focusedChartInfo.id);
           switch (focusedChartInfo.id) {
@@ -113,31 +105,30 @@ const Dashboard = () => {
               updateFocusedChartData('dashboard-objectifs', tauxCompletionData);
               break;
             default:
-              break; // No update needed if ID doesn't match
+              break;
           }
         }
 
-        setLoading(false);
       } catch (err) {
-        console.error('Erreur lors de la récupération des données:', err);
-        setLoadingError('Erreur lors de la récupération des données. Veuillez réessayer plus tard.');
-        setLoading(false);
+        console.error('Erreur lors de la récupération des données du Dashboard:', err);
+        setDataError('Erreur lors de la récupération des données. Veuillez réessayer plus tard.');
+      } finally {
+        setLoadingData(false);
       }
     };
 
     fetchData();
-  }, [selectedAnnee, isOpen, focusedChartInfo, updateFocusedChartData]);
+  }, [selectedAnnee, isOpen, focusedChartInfo, updateFocusedChartData]); // Dependencies updated
 
-  // --- Event Handlers ---
+  // --- Event Handlers (useCallback remains the same) ---
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     if (name === 'annee') {
         setSelectedAnnee(value);
     }
-    // Add other filters here if needed in the future
-  }, []); // Dependency array is empty as it only uses setSelectedAnnee
+  }, []);
 
-  // --- Calculations (Memoized) ---
+  // --- Calculations (useMemo definitions remain the same, but dependencies might implicitly use `annees` from context if needed) ---
   const tauxReussiteMoyen = useMemo(() => {
     if (tauxReussiteCommerciaux.length === 0) return 0;
     const total = tauxReussiteCommerciaux.reduce((acc, curr) => acc + parseFloat(curr.Taux_Reussite || 0), 0);
@@ -146,36 +137,36 @@ const Dashboard = () => {
 
   const nombreMotifs = useMemo(() => new Set(motifs.map(m => m.Motif_Commande)).size, [motifs]);
 
-  // --- Render Logic ---
-
-  const showLoading = loading && !loadingError;
-
-  const displayError = filterError || loadingError;
-
-  // Filter Definition for Dialogs (using current state)
+  // Filter Definition for Dialogs (depends on `annees` from context now)
   const anneeFilterDefinition = useMemo(() => ({
       config: [
           { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
       ],
       onChange: handleFilterChange
-  }), [annees, selectedAnnee, handleFilterChange]);
+  }), [annees, selectedAnnee, handleFilterChange]); // Dependency on `annees` from context
+
+  // --- Render Logic ---
+  // Use loadingData and dataError for rendering states
+  const showLoading = loadingData;
+  const displayError = dataError;
 
   return (
     <Layout title="Tableau de bord">
-      {/* --- Year Filter --- */}
+      {/* --- Year Filter (uses `annees` from context) --- */}
       <Paper sx={{ padding: 2, marginBottom: 3 }}>
         <Stack direction="row" spacing={2}>
-          <FormControl sx={{ minWidth: 150 }}>
+          <FormControl sx={{ minWidth: 150 }} disabled={!annees || annees.length === 0 || loadingData}>
             <InputLabel id="annee-label">Année</InputLabel>
             <Select
               labelId="annee-label"
               id="annee-select"
-              value={selectedAnnee}
+              value={selectedAnnee} // Controlled by state
               label="Année"
               name="annee"
               onChange={handleFilterChange}
-              disabled={annees.length === 0 || loading}
+              // Disable if no years loaded or data is loading
             >
+              {/* Map over `annees` from context */}
               {annees.map(annee => (
                 <MenuItem key={annee} value={annee}>{annee}</MenuItem>
               ))}
@@ -194,10 +185,10 @@ const Dashboard = () => {
         </Box>
       )}
 
-      {/* --- Content: KPIs and Charts (only render if not loading and no critical filter error) --- */}
-      {!showLoading && !filterError && (
+      {/* --- Content: KPIs and Charts (uses loadingData) --- */}
+      {!showLoading && !displayError && (
         <>
-          {/* KPIs */}
+          {/* KPIs (logic remains the same) */}
           <Grid container spacing={3} sx={{ mb: 3 }}>
             <Grid item xs={12} sm={6} md={3}>
               <KpiCard
@@ -235,7 +226,7 @@ const Dashboard = () => {
             </Grid>
           </Grid>
 
-          {/* Graphiques (Wrapped in clickable Box) */}
+          {/* Graphiques (logic remains the same, uses `anneeFilterDefinition` based on context) */}
           <Grid container spacing={3}>
             {/* CA par Pays */}
             <Grid item xs={12} md={6}>
@@ -250,7 +241,7 @@ const Dashboard = () => {
                               title: chartTitle,
                               chartProps: chartProps,
                               chartData: caParPays,
-                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                              filterDefinition: anneeFilterDefinition // Uses updated definition
                           })}
                           sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                       >
@@ -264,7 +255,7 @@ const Dashboard = () => {
             <Grid item xs={12} md={6}>
              {(() => {
                   const chartTitle = `Taux Réussite Commerciaux (${selectedAnnee})`;
-                  const chartProps = { xKey: "Commercial", yKey: "Taux_Reussite", title: chartTitle, color: "#2ecc71", yAxisLabel: "%" }; // Added yAxisLabel
+                  const chartProps = { xKey: "Commercial", yKey: "Taux_Reussite", title: chartTitle, color: "#2ecc71", yAxisLabel: "%" };
                   return (
                       <Box
                           onClick={() => openFocusDialog({
@@ -273,7 +264,7 @@ const Dashboard = () => {
                               title: chartTitle,
                               chartProps: chartProps,
                               chartData: tauxReussiteCommerciaux,
-                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                              filterDefinition: anneeFilterDefinition // Uses updated definition
                           })}
                            sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                       >
@@ -296,7 +287,7 @@ const Dashboard = () => {
                               title: chartTitle,
                               chartProps: chartProps,
                               chartData: motifs,
-                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                              filterDefinition: anneeFilterDefinition // Uses updated definition
                           })}
                            sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                       >
@@ -310,7 +301,7 @@ const Dashboard = () => {
             <Grid item xs={12} md={6}>
              {(() => {
                   const chartTitle = `Taux Complétion Objectifs (${selectedAnnee})`;
-                  const chartProps = { xKey:"Groupe_Vendeur", yKey:"Taux_Completion", title: chartTitle, color:"#e74c3c", yAxisLabel: "%" }; // Added yAxisLabel
+                  const chartProps = { xKey:"Groupe_Vendeur", yKey:"Taux_Completion", title: chartTitle, color:"#e74c3c", yAxisLabel: "%" };
                   return (
                       <Box
                           onClick={() => openFocusDialog({
@@ -319,7 +310,7 @@ const Dashboard = () => {
                               title: chartTitle,
                               chartProps: chartProps,
                               chartData: tauxCompletionObjectifs,
-                              filterDefinition: anneeFilterDefinition // Only year filter needed
+                              filterDefinition: anneeFilterDefinition // Uses updated definition
                           })}
                           sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                       >

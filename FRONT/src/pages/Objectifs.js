@@ -7,6 +7,7 @@ import ComparisonChart from '../components/charts/ComparisonChart';
 import KpiCard from '../components/KpiCard';
 import { objectifService, commercialService } from '../services/api';
 import { useFocusChart } from '../context/FocusChartContext';
+import { useAppData } from '../context/AppDataContext';
 // import './Objectifs.css'; // Remove CSS import
 
 // MUI Components
@@ -32,65 +33,42 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'; // Taux Completio
 import OnlinePredictionIcon from '@mui/icons-material/OnlinePrediction'; // Projection
 
 const Objectifs = () => {
-  const [loading, setLoading] = useState(true);
-  const [loadingError, setLoadingError] = useState(null);
-  const [filterError, setFilterError] = useState(null);
+  // Use App Data Context for filter options
+  const { appData } = useAppData();
+  const { annees, groupesVendeurs } = appData;
 
-  const [annees, setAnnees] = useState([]);
-  const [groupesVendeurs, setGroupesVendeurs] = useState([]);
+  // State for page-specific data loading/error
+  const [loadingData, setLoadingData] = useState(true);
+  const [dataError, setDataError] = useState(null);
+
+  // State for selected filter values
   const [selectedAnnee, setSelectedAnnee] = useState('');
-  const [selectedGroupeVendeur, setSelectedGroupeVendeur] = useState('');
+  const [selectedGroupeVendeur, setSelectedGroupeVendeur] = useState(''); // Default to 'Tous'
 
+  // State for page-specific data
   const [objectifs, setObjectifs] = useState([]);
   const [tauxCompletion, setTauxCompletion] = useState([]);
   const [projectionCA, setProjectionCA] = useState(null);
   const [evolutionData, setEvolutionData] = useState([]);
 
-  // Get context functions and state
+  // Focus Chart Context hook
   const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
 
-  // Fetch Filters
+  // Effect to set the initial selected year once annees are loaded
   useEffect(() => {
-    const fetchFilters = async () => {
-      try {
-        setFilterError(null);
-        const [groupesData, objectifsAllYears] = await Promise.all([
-          commercialService.getAvailableGroupesVendeurs(),
-          objectifService.getObjectifsCommerciaux({}) // Pour les années
-        ]);
+    if (annees && annees.length > 0 && !selectedAnnee) {
+       setSelectedAnnee(annees[0] || new Date().getFullYear().toString()); // Fallback to current year string if no years
+    }
+  }, [annees, selectedAnnee]);
 
-        const groupOptions = groupesData.sort((a, b) => (a.Nom_Commercial || '').localeCompare(b.Nom_Commercial || ''));
-        setGroupesVendeurs(groupOptions);
-
-        const yearOptions = [...new Set(objectifsAllYears.map(item => item.Annee))].sort((a, b) => b - a);
-        setAnnees(yearOptions);
-
-        if (yearOptions.length > 0) {
-            setSelectedAnnee(yearOptions[0]);
-        } else {
-            const currentYear = new Date().getFullYear();
-            setSelectedAnnee(currentYear); // Fallback
-            setAnnees([currentYear]);
-            console.warn('Aucune année avec des données d\'objectifs trouvée, utilisation de l\'année en cours.')
-        }
-        // Keep selectedGroupeVendeur empty initially to show "Tous les groupes"
-
-      } catch (err) {
-        console.error('Erreur filtres:', err);
-        setFilterError('Erreur récupération options filtre.');
-      }
-    };
-    fetchFilters();
-  }, []);
-
-  // Fetch Data based on Filters
+  // Fetch Data useEffect (depends on selected filters)
   useEffect(() => {
-    if (!selectedAnnee) return; // Wait for filters to load
+    if (!selectedAnnee) return; // Wait for year to be selected
 
     const fetchData = async () => {
       try {
-        setLoading(true);
-        setLoadingError(null);
+        setLoadingData(true);
+        setDataError(null);
 
         const currentYear = new Date().getFullYear();
         const anneeFilterValue = selectedAnnee !== 'all' ? selectedAnnee : undefined;
@@ -101,42 +79,53 @@ const Objectifs = () => {
           groupe_vendeur: groupeFilterValue,
         };
 
+        console.log("[Objectifs Page] Fetching data with filters:", filters);
+
         const [objectifsData, tauxCompletionData, evolutionDataRes] = await Promise.all([
           objectifService.getObjectifsCommerciaux(filters),
           objectifService.getTauxCompletionObjectifs(filters),
           objectifService.getEvolutionObjectifsCA(groupeFilterValue) // Evolution depends only on group
         ]);
 
+        // --- DEBUGGING: Log raw API data ---
+        console.log("[Objectifs Page] Raw objectifsData:", objectifsData);
+        console.log("[Objectifs Page] Raw evolutionDataRes:", evolutionDataRes);
+        // -------------------------------------
+
         // Update local state
         setObjectifs(objectifsData);
         setTauxCompletion(tauxCompletionData);
         setEvolutionData(evolutionDataRes);
 
-        // Fetch projection only if a group is selected and it's the current year
+        // Fetch projection logic (remains the same)
         let newProjectionCA = null;
-        if (selectedGroupeVendeur && selectedAnnee === currentYear) {
-          const projectionData = await objectifService.getProjectionCA(selectedGroupeVendeur, selectedAnnee);
-          newProjectionCA = projectionData[0];
-          setProjectionCA(newProjectionCA);
+        if (selectedGroupeVendeur && parseInt(selectedAnnee) === currentYear) { // Ensure year comparison is correct
+            try {
+                 const projectionData = await objectifService.getProjectionCA(selectedGroupeVendeur, selectedAnnee);
+                 newProjectionCA = projectionData[0];
+                 setProjectionCA(newProjectionCA);
+            } catch (projErr) {
+                console.warn("Could not fetch projection data:", projErr);
+                setProjectionCA(null); // Reset projection if fetch fails
+            }
         } else {
           setProjectionCA(null);
         }
 
-        // Update focused chart data if dialog is open
+        // Update focused chart data (logic remains the same)
         if (isOpen && focusedChartInfo) {
-            console.log("Objectifs: Checking if focused chart needs update. ID:", focusedChartInfo.id);
-             // Memoized calculation depends on objectifsData
-            const newComparisonData = objectifsData.map(item => ({
+             // ... existing update logic ...
+             console.log("Objectifs: Checking if focused chart needs update. ID:", focusedChartInfo.id);
+             const newComparisonData = objectifsData.map(item => ({
                 Groupe_Vendeur: item.Nom_Commercial || item.Groupe_Vendeur,
                 Objectif: parseFloat(item.Objectif_Commercial || 0),
                 Realisation: parseFloat(item.CA || 0)
             }));
-             // Memoized calculation depends on evolutionDataRes
             const newEvolutionChartData = evolutionDataRes.map(item => ({
                 Annee: item.Annee.toString(),
                 Objectif: parseFloat(selectedGroupeVendeur ? item.Objectif_Commercial : item.Objectif_Total || 0),
                 CA: parseFloat(selectedGroupeVendeur ? item.CA : item.CA_Total || 0),
-            }));
+            })).sort((a, b) => parseInt(a.Annee) - parseInt(b.Annee)); // Sort here after mapping
 
             switch (focusedChartInfo.id) {
                 case 'objectifs-taux-completion-bar':
@@ -146,42 +135,37 @@ const Objectifs = () => {
                     updateFocusedChartData('objectifs-comparison', newComparisonData);
                     break;
                 case 'objectifs-evolution':
-                     // Check if the focused chart ID matches and update
                     updateFocusedChartData('objectifs-evolution', newEvolutionChartData);
                     break;
                 case 'objectifs-completion-gauge':
-                     // Calculate the global completion rate based on the new data
                     const newObjectifTotal = objectifsData.reduce((acc, curr) => acc + parseFloat(curr.Objectif_Commercial || 0), 0);
                     const newCaTotal = objectifsData.reduce((acc, curr) => acc + parseFloat(curr.CA || 0), 0);
                     const newTauxCompletionGlobal = newObjectifTotal !== 0 ? ((newCaTotal / newObjectifTotal) * 100) : 0;
-                    // Gauge often takes a single value, ensure it's formatted correctly for the component
                     updateFocusedChartData('objectifs-completion-gauge', [{ value: parseFloat(newTauxCompletionGlobal.toFixed(2)) }]);
                     break;
-                // Add cases for other charts if they become focusable
                 default:
                     break;
             }
         }
 
-        setLoading(false);
       } catch (err) {
-        console.error('Erreur données:', err);
-        setLoadingError('Erreur récupération données.');
-        setLoading(false);
+        console.error('Erreur données Objectifs:', err);
+        setDataError('Erreur récupération données Objectifs.');
+      } finally {
+        setLoadingData(false);
       }
     };
     fetchData();
-   // Add context dependencies
   }, [selectedAnnee, selectedGroupeVendeur, isOpen, focusedChartInfo, updateFocusedChartData]);
 
-  // Use useCallback for stability
+  // Filter Change Handler (useCallback remains the same)
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     if (name === 'annee') setSelectedAnnee(value);
     if (name === 'groupe-vendeur') setSelectedGroupeVendeur(value);
-  }, []); // Dependencies only setters
+  }, []);
 
-  // --- Calculations (Memoized - definitions remain mostly the same, but ensure dependencies are correct) ---
+  // KPI Calculations useMemo (definitions remain the same)
   const objectifTotal = useMemo(() => objectifs.reduce((acc, curr) => acc + parseFloat(curr.Objectif_Commercial || 0), 0), [objectifs]);
   const caTotal = useMemo(() => objectifs.reduce((acc, curr) => acc + parseFloat(curr.CA || 0), 0), [objectifs]);
   const tauxCompletionMoyen = useMemo(() => {
@@ -189,52 +173,67 @@ const Objectifs = () => {
       const total = tauxCompletion.reduce((acc, curr) => acc + parseFloat(curr.Taux_Completion || 0), 0);
       return (total / tauxCompletion.length).toFixed(2);
   }, [tauxCompletion]);
-
   const tauxCompletionGlobal = useMemo(() => objectifTotal !== 0 ? parseFloat(((caTotal / objectifTotal) * 100).toFixed(2)) : 0, [caTotal, objectifTotal]);
 
-  const comparisonData = useMemo(() => objectifs.map(item => ({
-    Groupe_Vendeur: item.Nom_Commercial || item.Groupe_Vendeur,
-    Objectif: parseFloat(item.Objectif_Commercial || 0),
-    Realisation: parseFloat(item.CA || 0)
-  })), [objectifs]);
+  // Chart Data Calculations useMemo
+  const comparisonData = useMemo(() => {
+    const data = objectifs.map(item => ({
+      Groupe_Vendeur: item.Nom_Commercial || item.Groupe_Vendeur,
+      Objectif: parseFloat(item.Objectif_Commercial || 0),
+      Realisation: parseFloat(item.CA || 0)
+    }));
+    // --- DEBUGGING: Log calculated comparison data ---
+    console.log("[Objectifs Page] Calculated comparisonData:", data);
+    // --------------------------------------------------
+    return data;
+  }, [objectifs]);
 
-  const evolutionChartData = useMemo(() => evolutionData.map(item => ({
-    Annee: item.Annee.toString(), // Ensure Annee is a string for chart keys
-    Objectif: parseFloat(selectedGroupeVendeur ? item.Objectif_Commercial : item.Objectif_Total || 0),
-    CA: parseFloat(selectedGroupeVendeur ? item.CA : item.CA_Total || 0),
-  })).sort((a, b) => parseInt(a.Annee) - parseInt(b.Annee)), [evolutionData, selectedGroupeVendeur]); // Sort by year
-
+  const evolutionChartData = useMemo(() => {
+    const data = evolutionData.map(item => ({
+      Annee: item.Annee.toString(),
+      Objectif: parseFloat(selectedGroupeVendeur ? item.Objectif_Commercial : item.Objectif_Total || 0),
+      CA: parseFloat(selectedGroupeVendeur ? item.CA : item.CA_Total || 0),
+    })).sort((a, b) => parseInt(a.Annee) - parseInt(b.Annee));
+    // --- DEBUGGING: Log calculated evolution data ---
+    console.log("[Objectifs Page] Calculated evolutionChartData:", data);
+    // -------------------------------------------------
+    return data;
+  }, [evolutionData, selectedGroupeVendeur]);
 
   const { best, worst } = useMemo(() => {
-    // ... (existing best/worst logic remains the same) ...
+    // ... existing best/worst logic ...
       if (tauxCompletion.length === 0) return { best: null, worst: null };
       const sorted = [...tauxCompletion].sort((a, b) => parseFloat(b.Taux_Completion || 0) - parseFloat(a.Taux_Completion || 0));
-      return {
-        best: sorted[0],
-        worst: sorted[sorted.length - 1]
-      };
+    return {
+      best: sorted[0],
+      worst: sorted[sorted.length - 1]
+    };
   }, [tauxCompletion]);
 
-  // Filter Definition for Dialogs
+  // Filter Definition for Dialogs (uses context data)
   const objectifsFilterDefinition = useMemo(() => ({
       config: [
           { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
-          { id: 'groupe-vendeur', label: 'Groupe Vendeur', options: groupesVendeurs.map(g => ({ value: g.Groupe_Vendeur, label: g.Nom_Commercial || `Groupe ${g.Groupe_Vendeur}` })), value: selectedGroupeVendeur }
+          { id: 'groupe-vendeur', label: 'Groupe Vendeur', options: groupesVendeurs.map(g => ({ value: g.id, label: g.nom })), value: selectedGroupeVendeur }
       ],
       onChange: handleFilterChange
   }), [annees, selectedAnnee, groupesVendeurs, selectedGroupeVendeur, handleFilterChange]);
 
-  // Filter definition only for Evolution chart (group only)
   const evolutionFilterDefinition = useMemo(() => ({
       config: [
-           { id: 'groupe-vendeur', label: 'Groupe Vendeur', options: groupesVendeurs.map(g => ({ value: g.Groupe_Vendeur, label: g.Nom_Commercial || `Groupe ${g.Groupe_Vendeur}` })), value: selectedGroupeVendeur }
+           { id: 'groupe-vendeur', label: 'Groupe Vendeur', options: groupesVendeurs.map(g => ({ value: g.id, label: g.nom })), value: selectedGroupeVendeur }
       ],
        onChange: handleFilterChange
   }), [groupesVendeurs, selectedGroupeVendeur, handleFilterChange]);
 
-  // --- Render Loading/Error ---
-  if (loading && !loadingError) {
-    return (
+
+  // --- Render Logic ---
+  const showLoading = loadingData;
+  const displayError = dataError;
+
+  if (showLoading) {
+    // ... loading JSX ...
+        return (
       <Layout title="Objectifs">
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
           <CircularProgress />
@@ -243,22 +242,22 @@ const Objectifs = () => {
     );
   }
 
-  const renderError = filterError || loadingError;
-  if (renderError) {
-    return (
+  if (displayError) {
+    // ... error JSX ...
+     return (
       <Layout title="Objectifs">
-        <Alert severity="error" sx={{ margin: 2 }}>{renderError}</Alert>
+        <Alert severity="error" sx={{ margin: 2 }}>{displayError}</Alert>
       </Layout>
     );
   }
 
-  // --- Render Page ---
   return (
     <Layout title="Objectifs">
-      {/* Filtres */}
+      {/* Filtres (uses context data `annees` and `groupesVendeurs`) */}
       <Paper sx={{ padding: 2, marginBottom: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <FormControl sx={{ minWidth: 200 }}>
+          {/* Annee Filter */}
+          <FormControl sx={{ minWidth: 200 }} disabled={!annees || annees.length === 0 || loadingData}>
             <InputLabel id="annee-label">Année</InputLabel>
             <Select
               labelId="annee-label"
@@ -267,62 +266,59 @@ const Objectifs = () => {
               label="Année"
               name="annee"
               onChange={handleFilterChange}
-              disabled={loading}
             >
-              {/* <MenuItem value="all"><em>Toutes les années</em></MenuItem> Removed 'all' as evolution handles aggregation */}
+              {/* Map over `annees` from context */}
               {annees.map(annee => (
                 <MenuItem key={annee} value={annee}>{annee}</MenuItem>
               ))}
             </Select>
           </FormControl>
-
-          <FormControl sx={{ minWidth: 200 }}>
+          {/* Groupe Vendeur Filter */}
+          <FormControl sx={{ minWidth: 200 }} disabled={!groupesVendeurs || groupesVendeurs.length === 0 || loadingData}>
             <InputLabel id="groupe-vendeur-label">Groupe Vendeur</InputLabel>
             <Select
               labelId="groupe-vendeur-label"
               id="groupe-vendeur-select"
               value={selectedGroupeVendeur}
               label="Groupe Vendeur"
-              name="groupe-vendeur" // Use hyphenated name consistent with handler
+              name="groupe-vendeur"
               onChange={handleFilterChange}
-              disabled={loading}
             >
               <MenuItem value=""><em>Tous les groupes</em></MenuItem>
+              {/* Map over `groupesVendeurs` from context */} 
               {groupesVendeurs.map(g => (
-                <MenuItem key={g.Groupe_Vendeur} value={g.Groupe_Vendeur}>
-                  {g.Nom_Commercial || `Groupe ${g.Groupe_Vendeur}`}
-                </MenuItem>
+                <MenuItem key={g.id} value={g.id}>{g.nom}</MenuItem>
               ))}
             </Select>
           </FormControl>
         </Stack>
       </Paper>
 
-      {/* KPIs & Projection */}
+      {/* KPIs & Projection (logic remains the same) */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
-          <KpiCard
+        <KpiCard 
             title="Objectif Total"
             value={objectifTotal.toLocaleString('fr-FR')}
-            unit="€"
+          unit="€" 
             icon={<TrackChangesIcon fontSize="large" />}
-            color="#3498db"
-          />
+          color="#3498db" 
+        />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <KpiCard
+        <KpiCard 
             title="CA Total Réalisé"
             value={caTotal.toLocaleString('fr-FR')}
-            unit="€"
+          unit="€" 
             icon={<MonetizationOnIcon fontSize="large" />}
-            color="#2ecc71"
-          />
+          color="#2ecc71" 
+        />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <KpiCard
+        <KpiCard 
             title="Taux Compl. Global"
             value={tauxCompletionGlobal}
-            unit="%"
+          unit="%" 
             icon={<CheckCircleIcon fontSize="large" />}
             color="#e67e22"
           />
@@ -340,51 +336,10 @@ const Objectifs = () => {
         )}
       </Grid>
 
-      {/* Contenu Principal (Graphiques, Meilleur/Pire) */}
-      <Grid container spacing={3}>
-        {/* Graphique Comparaison Objectif/Réalisation */}
-        {comparisonData.length > 0 && !selectedGroupeVendeur && (
-            <Grid item xs={12} md={6}>
-                 <ComparisonChart
-                    data={comparisonData}
-                    xKey="Groupe_Vendeur"
-                    yKey1="Objectif"
-                    yKey2="Realisation"
-                    title={`Objectif vs Réalisation (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
-                    label1="Objectif (€)"
-                    label2="Réalisation (€)"
-                 />
-            </Grid>
-        )}
-
-         {/* Gauge Chart si un groupe est sélectionné */}
-        {selectedGroupeVendeur && tauxCompletion.length > 0 && (
-          <Grid item xs={12} md={6}>
-            <GaugeChart
-              value={parseFloat(tauxCompletion[0]?.Taux_Completion || 0)}
-              title={`Taux Completion - ${tauxCompletion[0]?.Nom_Commercial || selectedGroupeVendeur} (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`}
-              max={100}
-            />
-          </Grid>
-        )}
-
-        {/* Graphique Évolution Objectifs/CA */}
-        <Grid item xs={12} md={6}>
-          <LineChart
-            data={evolutionChartData}
-            xKey="Annee"
-            yKey="Objectif"
-            secondaryKey="CA"
-            title={`Évolution Objectifs vs CA ${selectedGroupeVendeur ? ('- ' + (groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur)) : '(Tous)'}`}
-            color="#e74c3c" // Objectif
-            secondaryColor="#2ecc71" // CA
-          />
-        </Grid>
-
-        {/* Meilleur et Pire Groupe (si aucun groupe spécifique n'est sélectionné) */}
-        {best && worst && !selectedGroupeVendeur && (
+      {/* Meilleur / Pire Groupe (logic remains the same) */}
+       {best && worst && !selectedGroupeVendeur && (
           <Grid item xs={12}>
-            <Grid container spacing={3}>
+            <Grid container spacing={3} sx={{mb: 3}}>
               <Grid item xs={12} md={6}>
                  <Card>
                     <CardHeader title="Meilleur Groupe" sx={{ bgcolor: 'success.light', textAlign: 'center' }} titleTypographyProps={{ fontWeight: 'bold' }} />
@@ -409,14 +364,12 @@ const Objectifs = () => {
           </Grid>
         )}
 
-      </Grid>
-
-      {/* Graphiques (Wrapped in clickable Box) */}
+      {/* Graphiques (use updated filter definitions) */}
       <Grid container spacing={3}>
         {/* Taux Complétion par Groupe (Bar) */}
         <Grid item xs={12} md={6}>
           {(() => {
-            const chartTitle = `Taux Complétion Objectifs (${selectedAnnee === 'all' ? 'Global' : selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur}` : ''})`;
+            const chartTitle = `Taux Complétion Objectifs (${selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.id === selectedGroupeVendeur)?.nom || selectedGroupeVendeur}` : ' (Global)'})`;
             const chartProps = { xKey:"Groupe_Vendeur", yKey:"Taux_Completion", title: chartTitle, color:"#e74c3c", yAxisLabel:"%" };
             return (
                 <Box
@@ -426,7 +379,7 @@ const Objectifs = () => {
                         title: chartTitle,
                         chartProps: chartProps,
                         chartData: tauxCompletion,
-                        filterDefinition: objectifsFilterDefinition
+                        filterDefinition: objectifsFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -439,9 +392,10 @@ const Objectifs = () => {
         {/* Objectif vs Réalisation (Comparison/Bar) */}
         <Grid item xs={12} md={6}>
           {(() => {
-            const chartTitle = `Objectif vs Réalisation (${selectedAnnee === 'all' ? 'Global' : selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur}` : ''})`;
+            const chartTitle = `Objectif vs Réalisation (${selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.id === selectedGroupeVendeur)?.nom || selectedGroupeVendeur}` : ' (Global)'})`;
+            // ChartProps for ComparisonChart needs data directly
             const chartProps = {
-                data: comparisonData, // Pass data directly here
+                data: comparisonData,
                 xKey: "Groupe_Vendeur",
                 bar1Key: "Objectif",
                 bar2Key: "Realisation",
@@ -449,19 +403,18 @@ const Objectifs = () => {
                 bar2Name: "Réalisé (€)",
                 title: chartTitle
             };
-             // Extract props needed for dialog (without data)
-            const dialogChartProps = { ...chartProps };
-            delete dialogChartProps.data;
+            const dialogChartProps = { ...chartProps }; // Clone for dialog
+            delete dialogChartProps.data; // Remove data for dialog props
 
             return (
                 <Box
                     onClick={() => openFocusDialog({
                         id: 'objectifs-comparison',
-                        type: 'comparison', // Use the specific chart type
+                        type: 'comparison',
                         title: chartTitle,
-                        chartProps: dialogChartProps,
-                        chartData: comparisonData, // Pass the memoized data
-                        filterDefinition: objectifsFilterDefinition
+                        chartProps: dialogChartProps, // Pass props without data
+                        chartData: comparisonData, // Pass data separately
+                        filterDefinition: objectifsFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -474,7 +427,7 @@ const Objectifs = () => {
         {/* Évolution Objectifs/CA (Line) */}
         <Grid item xs={12} md={6}>
           {(() => {
-            const chartTitle = `Évolution Objectif vs CA ${selectedGroupeVendeur ? `(${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur})` : '(Global)'}`;
+            const chartTitle = `Évolution Objectif vs CA ${selectedGroupeVendeur ? `(${groupesVendeurs.find(g => g.id === selectedGroupeVendeur)?.nom || selectedGroupeVendeur})` : '(Global)'}`;
             const chartProps = {
                 xKey: "Annee",
                 yKeys: ["Objectif", "CA"],
@@ -488,9 +441,8 @@ const Objectifs = () => {
                         type: 'line',
                         title: chartTitle,
                         chartProps: chartProps,
-                        chartData: evolutionChartData, // Pass the memoized data
-                        // Only allow filtering by group for evolution
-                        filterDefinition: evolutionFilterDefinition
+                        chartData: evolutionChartData,
+                        filterDefinition: evolutionFilterDefinition // Use specific definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -503,8 +455,7 @@ const Objectifs = () => {
          {/* Taux Complétion Global (Gauge) */}
         <Grid item xs={12} md={6}>
           {(() => {
-            const chartTitle = `Taux Complétion Global (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.Groupe_Vendeur === selectedGroupeVendeur)?.Nom_Commercial || selectedGroupeVendeur}` : ''})`;
-            // Gauge often takes a single value, not an array
+            const chartTitle = `Taux Complétion Global (${selectedAnnee}${selectedGroupeVendeur ? ` / ${groupesVendeurs.find(g => g.id === selectedGroupeVendeur)?.nom || selectedGroupeVendeur}` : ''})`;
             const gaugeValue = tauxCompletionGlobal;
             const chartProps = { value: gaugeValue, title: chartTitle };
             return (
@@ -513,14 +464,12 @@ const Objectifs = () => {
                         id: 'objectifs-completion-gauge',
                         type: 'gauge',
                         title: chartTitle,
-                        chartProps: { title: chartTitle }, // Pass non-data props
-                        // Pass data in the format expected by update logic ({value: ...})
+                        chartProps: { title: chartTitle },
                         chartData: [{ value: gaugeValue }],
-                        filterDefinition: objectifsFilterDefinition
+                        filterDefinition: objectifsFilterDefinition // Use updated definition
                     })}
                     sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                  >
-                    {/* Render Gauge normally on page */}
                     <GaugeChart {...chartProps} />
                  </Box>
             );

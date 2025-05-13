@@ -5,6 +5,7 @@ import LineChart from '../components/charts/LineChart';
 import KpiCard from '../components/KpiCard';
 import { caService } from '../services/api';
 import { useFocusChart } from '../context/FocusChartContext';
+import { useAppData } from '../context/AppDataContext';
 
 // Importer les composants MUI
 import Grid from '@mui/material/Grid';
@@ -25,17 +26,19 @@ import PublicIcon from '@mui/icons-material/Public'; // Pour Nombre de pays
 import GroupWorkIcon from '@mui/icons-material/GroupWork'; // Pour Groupes vendeurs
 
 const ChiffreAffaires = () => {
-  const [loading, setLoading] = useState(true);
-  const [loadingError, setLoadingError] = useState(null);
-  const [filterError, setFilterError] = useState(null);
+  // Use App Data Context for filter options
+  const { appData } = useAppData();
+  const { annees, pays } = appData;
 
-  // États pour les filtres
-  const [annees, setAnnees] = useState([]);
-  const [pays, setPays] = useState([]);
-  const [selectedAnnee, setSelectedAnnee] = useState(''); // Initialiser à vide
-  const [selectedPays, setSelectedPays] = useState('');
+  // State for page-specific data loading/error
+  const [loadingData, setLoadingData] = useState(true);
+  const [dataError, setDataError] = useState(null);
 
-  // États pour les données
+  // State for selected filter values - Initialize after checking context data
+  const [selectedAnnee, setSelectedAnnee] = useState('');
+  const [selectedPays, setSelectedPays] = useState(''); // Default to 'Tous'
+
+  // State for page-specific data
   const [caTotal, setCATotal] = useState(0);
   const [caParPays, setCAParPays] = useState([]);
   const [caParVendeur, setCAParVendeur] = useState([]);
@@ -43,149 +46,105 @@ const ChiffreAffaires = () => {
 
   const { openFocusDialog, isOpen, focusedChartInfo, updateFocusedChartData } = useFocusChart();
 
-  // Récupérer les années et pays disponibles
+  // Effect to set the initial selected year once annees are loaded
   useEffect(() => {
-    const fetchFilters = async () => {
-      try {
-        setFilterError(null);
-        const yearsData = await caService.getAvailableYears();
-        const countriesData = await caService.getAvailableCountries();
+    if (annees && annees.length > 0 && !selectedAnnee) {
+      setSelectedAnnee(annees[0]); // Default to the most recent year
+    }
+    // We don't need to set selectedPays initially, default empty string means "Tous"
+  }, [annees, selectedAnnee]);
 
-        const yearOptions = yearsData.map(item => item.Annee).sort((a, b) => b - a); // Trier desc
-        const countryOptions = countriesData.map(item => item.Pays).sort();
-
-        setAnnees(yearOptions);
-        setPays(countryOptions);
-
-        // Définir l'année la plus récente comme valeur par défaut si elle existe
-        if (yearOptions.length > 0) {
-          setSelectedAnnee(yearOptions[0]);
-        } else {
-           setSelectedAnnee('all'); // Fallback si aucune année n'est trouvée
-        }
-      } catch (err) {
-        console.error('Erreur lors de la récupération des filtres:', err);
-        setFilterError('Erreur lors de la récupération des options de filtre.');
-      }
-    };
-    fetchFilters();
-  }, []);
-
-  // --- Component to render filters (used on page and potentially in dialog) ---
-  const renderFilters = useCallback((isDialog = false) => (
-      <Stack direction={isDialog ? 'row' : { xs: 'column', sm: 'row' }} spacing={2}>
-        <FormControl sx={{ minWidth: isDialog ? 150 : 200 }} size={isDialog ? "small" : "medium"}>
-          <InputLabel id="annee-label">Année</InputLabel>
-          <Select
-            labelId="annee-label"
-            value={selectedAnnee}
-            label="Année"
-            name="annee"
-            onChange={(event) => {
-              setSelectedAnnee(event.target.value);
-            }}
-            disabled={annees.length === 0}
-          >
-            <MenuItem value="all"><em>Toutes</em></MenuItem>
-            {annees.map(annee => (
-              <MenuItem key={annee} value={annee}>{annee}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl sx={{ minWidth: isDialog ? 150 : 200 }} size={isDialog ? "small" : "medium"}>
-          <InputLabel id="pays-label">Pays</InputLabel>
-          <Select
-            labelId="pays-label"
-            value={selectedPays}
-            label="Pays"
-            name="pays"
-            onChange={(event) => {
-              setSelectedPays(event.target.value);
-            }}
-          >
-            <MenuItem value=""><em>Tous</em></MenuItem>
-            {pays.map(p => (
-              <MenuItem key={p} value={p}>{p}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Stack>
-  ), [selectedAnnee, selectedPays, annees, pays]);
-
-  // --- Filter Change Handler ---
+  // Filter Change Handler (useCallback remains the same)
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     if (name === 'annee') setSelectedAnnee(value);
     if (name === 'pays') setSelectedPays(value);
-  }, []); // Now stable
+  }, []);
 
-  // --- Fetch Data (Modified useEffect) ---
+  // Fetch Data useEffect (depends on selected filters)
   useEffect(() => {
-    if (!selectedAnnee) return;
+    if (!selectedAnnee) return; // Wait for year to be selected
 
     const fetchData = async () => {
       try {
-        setLoading(true);
-        setLoadingError(null);
-        const filters = { 
+        setLoadingData(true);
+        setDataError(null);
+        const filters = {
             annee: selectedAnnee !== 'all' ? selectedAnnee : undefined,
-            pays: selectedPays || undefined 
+            pays: selectedPays || undefined
         };
+
+        // Determine the year to fetch total CA for (use current year if 'all' is selected)
+        const yearForTotal = selectedAnnee !== 'all' ? selectedAnnee : new Date().getFullYear();
+        
         // Fetch all data based on current filters
         const [caTotalData, caParPaysData, caParVendeurData, allYearsDataRes] = await Promise.all([
-          caService.getCATotalByAnnee(selectedAnnee !== 'all' ? selectedAnnee : new Date().getFullYear()),
-          caService.getCAByPaysAnnee({ annee: filters.annee, pays: filters.pays }),
-          caService.getCAByVendeurAnnee({ annee: filters.annee }),
-          Promise.all(annees.filter(year => !isNaN(parseInt(year))).map(year => caService.getCATotalByAnnee(year))) // Filter out 'all' if present for this call
+          caService.getCATotalByAnnee(yearForTotal),
+          caService.getCAByPaysAnnee(filters),
+          caService.getCAByVendeurAnnee({ annee: filters.annee }), // Only filter by year for vendor CA
+          // Fetch CA for each available year for the evolution chart
+          Promise.all(annees.filter(year => !isNaN(parseInt(year))).map(year => caService.getCATotalByAnnee(year)))
         ]);
 
-        // Process and set state
-        const validYears = annees.filter(year => !isNaN(parseInt(year))); // Use only valid years for mapping
+        // Process evolution data
+        const validYears = annees.filter(year => !isNaN(parseInt(year)));
         const newCaParAnnee = allYearsDataRes
-          .map((res, index) => ({
-             Annee: validYears[index],
-             CA: res[0]?.CA_Total || 0
-           }))
+          .map((res, index) => ({ Annee: validYears[index], CA: res[0]?.CA_Total || 0 }))
           .sort((a, b) => a.Annee - b.Annee);
 
-        // Update local state first
+        // Update local state
         setCATotal(caTotalData[0]?.CA_Total || 0);
         setCAParPays(caParPaysData);
         setCAParVendeur(caParVendeurData);
         setCAParAnnee(newCaParAnnee);
 
-        // Update focused chart data if dialog is open
+        // Update focused chart data (logic remains the same)
         if (isOpen && focusedChartInfo) {
-            console.log("Checking if focused chart needs update. ID:", focusedChartInfo.id);
-            if (focusedChartInfo.id === 'ca-par-pays') {
-                updateFocusedChartData('ca-par-pays', caParPaysData); // Pass the NEW data array
-            }
-            if (focusedChartInfo.id === 'ca-par-vendeur') {
-                updateFocusedChartData('ca-par-vendeur', caParVendeurData);
-            }
-            if (focusedChartInfo.id === 'ca-evolution') {
-                updateFocusedChartData('ca-evolution', newCaParAnnee);
-            }
+          console.log("Checking if focused chart needs update. ID:", focusedChartInfo.id);
+          if (focusedChartInfo.id === 'ca-par-pays') {
+              updateFocusedChartData('ca-par-pays', caParPaysData);
+          }
+          if (focusedChartInfo.id === 'ca-par-vendeur') {
+              updateFocusedChartData('ca-par-vendeur', caParVendeurData);
+          }
+          if (focusedChartInfo.id === 'ca-evolution') {
+              updateFocusedChartData('ca-evolution', newCaParAnnee);
+          }
         }
 
-        setLoading(false);
       } catch (err) {
-        console.error('Erreur données:', err);
-        setLoadingError('Erreur récupération données.');
-        setLoading(false);
+        console.error('Erreur données Chiffre d\'Affaires:', err);
+        setDataError('Erreur récupération données.');
+      } finally {
+        setLoadingData(false);
       }
     };
 
-    // Only fetch if annees array is populated to avoid issues with initial empty state
-    if(annees.length > 0) {
-        fetchData();
-    }
+    fetchData();
+  }, [selectedAnnee, selectedPays, annees, isOpen, focusedChartInfo, updateFocusedChartData]); // Added annees dependency for evolution chart calculation
 
-  // Dependencies now correctly include the context update function and related states
-  }, [selectedAnnee, selectedPays, annees, isOpen, focusedChartInfo, updateFocusedChartData]);
+  // Filter Definition for CA par Pays chart dialog
+  const caPaysFilterDefinition = useMemo(() => ({
+    config: [
+      { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
+      { id: 'pays', label: 'Pays', options: pays, value: selectedPays }
+    ],
+    onChange: handleFilterChange
+  }), [annees, selectedAnnee, pays, selectedPays, handleFilterChange]);
 
-  // Rendu Chargement
-  if (loading && !loadingError) {
+  // Filter Definition for CA par Vendeur chart dialog (only Annee)
+  const caVendeurFilterDefinition = useMemo(() => ({
+    config: [
+      { id: 'annee', label: 'Année', options: annees, value: selectedAnnee },
+    ],
+    onChange: handleFilterChange
+  }), [annees, selectedAnnee, handleFilterChange]);
+
+  // --- Render Logic ---
+  const showLoading = loadingData;
+  const displayError = dataError;
+
+  if (showLoading) {
     return (
       <Layout title="Chiffre d'affaires">
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -195,26 +154,57 @@ const ChiffreAffaires = () => {
     );
   }
 
-  // Rendu Erreur (Filtres ou Données)
-  const renderError = filterError || loadingError;
-  if (renderError) {
+  if (displayError) {
     return (
       <Layout title="Chiffre d'affaires">
-        <Alert severity="error" sx={{ margin: 2 }}>{renderError}</Alert>
+        <Alert severity="error" sx={{ margin: 2 }}>{displayError}</Alert>
       </Layout>
     );
   }
 
   return (
     <Layout title="Chiffre d'affaires">
-      {/* Section Filtres */}
+      {/* Section Filtres (uses `annees` and `pays` from context) */}
       <Paper sx={{ padding: 2, marginBottom: 3 }}>
-         {renderFilters()}
+         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+           {/* Annee Filter */}
+           <FormControl sx={{ minWidth: 200 }} disabled={!annees || annees.length === 0 || loadingData}>
+             <InputLabel id="annee-label">Année</InputLabel>
+             <Select
+               labelId="annee-label"
+               value={selectedAnnee}
+               label="Année"
+               name="annee"
+               onChange={handleFilterChange}
+             >
+               {/* <MenuItem value="all"><em>Toutes</em></MenuItem> Consider if 'all' is needed */}
+               {annees.map(annee => (
+                 <MenuItem key={annee} value={annee}>{annee}</MenuItem>
+               ))}
+             </Select>
+           </FormControl>
+           {/* Pays Filter */}
+           <FormControl sx={{ minWidth: 200 }} disabled={!pays || pays.length === 0 || loadingData}>
+             <InputLabel id="pays-label">Pays</InputLabel>
+             <Select
+               labelId="pays-label"
+               value={selectedPays}
+               label="Pays"
+               name="pays"
+               onChange={handleFilterChange}
+             >
+               <MenuItem value=""><em>Tous</em></MenuItem>
+               {pays.map(p => (
+                 <MenuItem key={p} value={p}>{p}</MenuItem>
+               ))}
+             </Select>
+           </FormControl>
+         </Stack>
       </Paper>
 
-      {/* KPIs */}
+      {/* KPIs (logic remains the same) */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
+         <Grid item xs={12} sm={4}>
           <KpiCard
             title={`CA Total (${selectedAnnee === 'all' ? new Date().getFullYear() : selectedAnnee})`}
             value={caTotal.toLocaleString('fr-FR')}
@@ -241,28 +231,22 @@ const ChiffreAffaires = () => {
         </Grid>
       </Grid>
 
-      {/* Graphiques */}
+      {/* Graphiques (use updated filter definitions) */}
       <Grid container spacing={3}>
+        {/* CA par Pays */}
         <Grid item xs={12} md={6}>
           {(() => { 
             const chartTitle = `CA par pays (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee}${selectedPays ? ` / ${selectedPays}` : ''})`;
             const chartProps = { xKey: "Pays", yKey: "CA", title: chartTitle, color: "#3498db" }; 
-            const filterDefinition = {
-                config: [
-                  { id: 'annee', label: 'Année', options: annees, value: selectedAnnee }, 
-                  { id: 'pays', label: 'Pays', options: pays, value: selectedPays }
-                ],
-                onChange: handleFilterChange
-            };
             return (
               <Box 
                   onClick={() => openFocusDialog({
-                    id: 'ca-par-pays',
+                    id: 'ca-par-pays', 
                     type: 'bar', 
                     title: chartTitle, 
                     chartProps, 
-                    chartData: caParPays,
-                    filterDefinition 
+                    chartData: caParPays, 
+                    filterDefinition: caPaysFilterDefinition // Use specific definition
                   })} 
                   sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
               >
@@ -271,16 +255,12 @@ const ChiffreAffaires = () => {
             );
           })()}
         </Grid>
+
+        {/* CA par Vendeur */}
         <Grid item xs={12} md={6}>
           {(() => { 
             const chartTitle = `CA par groupe de vendeurs (${selectedAnnee === 'all' ? 'Toutes' : selectedAnnee})`;
             const chartProps = { xKey: "Groupe_Vendeur", yKey: "CA", title: chartTitle, color: "#2ecc71" };
-            const filterDefinition = {
-                config: [
-                  { id: 'annee', label: 'Année', options: annees, value: selectedAnnee }
-                ],
-                onChange: handleFilterChange
-            };
             return (
                 <Box 
                   onClick={() => openFocusDialog({
@@ -288,8 +268,8 @@ const ChiffreAffaires = () => {
                     type: 'bar', 
                     title: chartTitle, 
                     chartProps, 
-                    chartData: caParVendeur,
-                    filterDefinition
+                    chartData: caParVendeur, 
+                    filterDefinition: caVendeurFilterDefinition // Use specific definition
                   })} 
                   sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
@@ -298,11 +278,12 @@ const ChiffreAffaires = () => {
             );
           })()}
         </Grid>
+
+        {/* Evolution CA */}
         <Grid item xs={12}>
           {(() => {
             const chartTitle = "Évolution du CA par année";
             const chartProps = { xKey: "Annee", yKey: "CA", title: chartTitle, color: "#e74c3c" };
-            const filterDefinition = null;
             return (
                 <Box 
                   onClick={() => openFocusDialog({
@@ -311,7 +292,7 @@ const ChiffreAffaires = () => {
                     title: chartTitle, 
                     chartProps, 
                     chartData: caParAnnee,
-                    filterDefinition
+                    filterDefinition: null // No filters for this one in dialog
                   })} 
                   sx={{ cursor: 'pointer', height: '100%', '&:hover': { transform: 'scale(1.01)', transition: 'transform 0.1s ease-in-out' } }}
                 >
